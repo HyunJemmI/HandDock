@@ -6,35 +6,60 @@ import styles from "../page.module.css";
 import { works } from "../work-data";
 import { SceneCanvas } from "./SceneCanvas";
 
+type Landmark = { x: number; y: number };
+
 type TrackingState = {
   ready: boolean;
   permission: "idle" | "pending" | "granted" | "denied";
-  gesture: "open" | "closed" | "searching";
+  gesture: "open" | "closed" | "neutral" | "searching";
   hoveredSlug: string | null;
-  hoveredName: string;
 };
 
-const HOLD_MS = 900;
+const HOLD_MS = 850;
+const DOCK_VISIBILITY_MS = 2200;
+const loadVisionModule = new Function("moduleUrl", "return import(moduleUrl)") as (
+  moduleUrl: string,
+) => Promise<unknown>;
 
-function getClosedFistScore(points: Array<{ x: number; y: number }>) {
+function distance(a: Landmark, b: Landmark) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function getHandScale(points: Landmark[]) {
+  return distance(points[5], points[17]) || 1;
+}
+
+function isFingerExtended(points: Landmark[], tipIndex: number, pipIndex: number) {
+  return points[tipIndex].y < points[pipIndex].y;
+}
+
+function isOpenPalm(points: Landmark[]) {
+  const extendedCount = [
+    isFingerExtended(points, 8, 6),
+    isFingerExtended(points, 12, 10),
+    isFingerExtended(points, 16, 14),
+    isFingerExtended(points, 20, 18),
+  ].filter(Boolean).length;
+
+  const scale = getHandScale(points);
+  const spread = distance(points[8], points[20]) / scale;
+  const indexLift = (points[5].y - points[8].y) / scale;
+  const middleLift = (points[9].y - points[12].y) / scale;
+
+  return extendedCount >= 3 && spread > 1.35 && indexLift > 0.7 && middleLift > 0.7;
+}
+
+function isClosedFist(points: Landmark[]) {
   const wrist = points[0];
-  const indexTip = points[8];
-  const middleTip = points[12];
-  const ringTip = points[16];
-  const pinkyTip = points[20];
-  const indexMcp = points[5];
-  const middleMcp = points[9];
-  const ringMcp = points[13];
-  const pinkyMcp = points[17];
+  const scale = getHandScale(points);
+  const curlAverage =
+    (distance(points[8], wrist) +
+      distance(points[12], wrist) +
+      distance(points[16], wrist) +
+      distance(points[20], wrist)) /
+    (4 * scale);
 
-  const handScale = Math.hypot(indexMcp.x - pinkyMcp.x, indexMcp.y - pinkyMcp.y) || 1;
-  const curled =
-    Math.hypot(indexTip.x - wrist.x, indexTip.y - wrist.y) +
-    Math.hypot(middleTip.x - wrist.x, middleTip.y - wrist.y) +
-    Math.hypot(ringTip.x - wrist.x, ringTip.y - wrist.y) +
-    Math.hypot(pinkyTip.x - wrist.x, pinkyTip.y - wrist.y);
-
-  return curled / handScale;
+  return curlAverage < 1.95;
 }
 
 export function HandDockHome() {
@@ -43,40 +68,63 @@ export function HandDockHome() {
     permission: "idle",
     gesture: "searching",
     hoveredSlug: null,
-    hoveredName: "None",
   });
-  const [pointer, setPointer] = useState({ x: 160, y: 160 });
+  const [pointer, setPointer] = useState({ x: 0, y: 0 });
+  const [dockVisible, setDockVisible] = useState(false);
+  const dockVisibleRef = useRef(false);
   const holdRef = useRef<{ slug: string | null; startedAt: number }>({
     slug: null,
     startedAt: 0,
   });
   const activatedRef = useRef<string | null>(null);
   const frameRef = useRef<number | null>(null);
+  const dockTimerRef = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
-    let handLandmarker: { close: () => void; detectForVideo: (video: HTMLVideoElement, now: number) => { landmarks: Array<Array<{ x: number; y: number }>> } } | null = null;
+    let handLandmarker: {
+      close: () => void;
+      detectForVideo: (
+        video: HTMLVideoElement,
+        now: number,
+      ) => { landmarks: Array<Array<Landmark>> };
+    } | null = null;
     let mounted = true;
+
+    function revealDock() {
+      dockVisibleRef.current = true;
+      setDockVisible(true);
+      if (dockTimerRef.current) {
+        window.clearTimeout(dockTimerRef.current);
+      }
+      dockTimerRef.current = window.setTimeout(() => {
+        dockVisibleRef.current = false;
+        setDockVisible(false);
+      }, DOCK_VISIBILITY_MS);
+    }
 
     async function setup() {
       setState((current) => ({ ...current, permission: "pending" }));
 
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: 960, height: 720 },
+          video: {
+            facingMode: "user",
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
           audio: false,
         });
       } catch {
-        if (!mounted) {
-          return;
+        if (mounted) {
+          setState((current) => ({
+            ...current,
+            permission: "denied",
+            ready: false,
+            gesture: "searching",
+          }));
         }
-        setState((current) => ({
-          ...current,
-          permission: "denied",
-          ready: false,
-          gesture: "searching",
-        }));
         return;
       }
 
@@ -86,10 +134,13 @@ export function HandDockHome() {
       }
 
       videoRef.current.srcObject = stream;
-      await videoRef.current.play();
+      videoRef.current.muted = true;
+      videoRef.current.playsInline = true;
+      await videoRef.current.play().catch(() => undefined);
 
-      const moduleUrl = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm";
-      const vision = (await import(/* webpackIgnore: true */ moduleUrl)) as {
+      const vision = (await loadVisionModule(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm",
+      )) as {
         FilesetResolver: {
           forVisionTasks: (path: string) => Promise<unknown>;
         };
@@ -102,7 +153,7 @@ export function HandDockHome() {
             detectForVideo: (
               video: HTMLVideoElement,
               now: number,
-            ) => { landmarks: Array<Array<{ x: number; y: number }>> };
+            ) => { landmarks: Array<Array<Landmark>> };
           }>;
         };
       };
@@ -148,7 +199,6 @@ export function HandDockHome() {
             ...current,
             gesture: "searching",
             hoveredSlug: null,
-            hoveredName: "Searching",
           }));
           frameRef.current = requestAnimationFrame(loop);
           return;
@@ -158,40 +208,54 @@ export function HandDockHome() {
         const x = (1 - cursor.x) * window.innerWidth;
         const y = cursor.y * window.innerHeight;
         setPointer({ x, y });
-        window.dispatchEvent(new MouseEvent("mousemove", { clientX: x, clientY: y, bubbles: true }));
+
+        window.dispatchEvent(
+          new MouseEvent("mousemove", { clientX: x, clientY: y, bubbles: true }),
+        );
         document.dispatchEvent(
-          new PointerEvent("pointermove", { clientX: x, clientY: y, bubbles: true, pointerType: "mouse" }),
+          new PointerEvent("pointermove", {
+            clientX: x,
+            clientY: y,
+            bubbles: true,
+            pointerType: "mouse",
+          }),
         );
 
-        const fistScore = getClosedFistScore(hand);
-        const closed = fistScore < 5.35;
-        const hovered = document.elementFromPoint(x, y)?.closest("[data-work-slug]");
-        const hoveredSlug = hovered?.getAttribute("data-work-slug") ?? null;
-        const hoveredName = hovered?.getAttribute("data-work-name") ?? "None";
+        const palmOpen = isOpenPalm(hand);
+        const fistClosed = isClosedFist(hand);
+        if (palmOpen) {
+          revealDock();
+        }
 
-        if (closed && hoveredSlug) {
+        const hovered = document.elementFromPoint(x, y)?.closest("[data-work-slug]");
+        const hoveredSlug = dockVisibleRef.current
+          ? hovered?.getAttribute("data-work-slug") ?? null
+          : null;
+
+        if (fistClosed && hoveredSlug) {
           if (holdRef.current.slug !== hoveredSlug) {
             holdRef.current = { slug: hoveredSlug, startedAt: performance.now() };
             activatedRef.current = null;
           }
 
-          const elapsed = performance.now() - holdRef.current.startedAt;
-          if (elapsed >= HOLD_MS && activatedRef.current !== hoveredSlug) {
+          if (
+            performance.now() - holdRef.current.startedAt >= HOLD_MS &&
+            activatedRef.current !== hoveredSlug
+          ) {
             activatedRef.current = hoveredSlug;
             (hovered as HTMLElement).click();
           }
         } else {
           holdRef.current = { slug: hoveredSlug, startedAt: performance.now() };
-          if (!closed) {
+          if (!fistClosed) {
             activatedRef.current = null;
           }
         }
 
         setState((current) => ({
           ...current,
-          gesture: closed ? "closed" : "open",
+          gesture: fistClosed ? "closed" : palmOpen ? "open" : "neutral",
           hoveredSlug,
-          hoveredName,
         }));
 
         frameRef.current = requestAnimationFrame(loop);
@@ -207,6 +271,9 @@ export function HandDockHome() {
       if (frameRef.current) {
         cancelAnimationFrame(frameRef.current);
       }
+      if (dockTimerRef.current) {
+        window.clearTimeout(dockTimerRef.current);
+      }
       if (handLandmarker) {
         handLandmarker.close();
       }
@@ -216,119 +283,45 @@ export function HandDockHome() {
     };
   }, []);
 
-  const statusLabel =
-    state.permission === "denied"
-      ? "Camera blocked"
-      : state.ready
-        ? "Gesture dock live"
-        : "Preparing camera";
-
   return (
     <main className={styles.shell}>
       <SceneCanvas />
-      <div className={styles.veil} />
+      <div className={styles.blackVignette} />
 
-      <div className={styles.content}>
-        <section className={styles.hero}>
-          <div>
-            <div className={styles.badge}>HandDock / local portal</div>
-          </div>
+      <aside className={`${styles.dockRail} ${dockVisible ? styles.dockRailVisible : ""}`}>
+        <div className={styles.linkList}>
+          {works.map((work) => {
+            const active = state.hoveredSlug === work.slug;
 
-          <div className={styles.headlineWrap}>
-            <h1 className={styles.title}>Enter works with your hand.</h1>
-            <p className={styles.subtitle}>
-              The robot follows your motion in Spline, while the dock listens to your camera.
-              Move your hand to aim. Make a fist and hold briefly over a card to enter without a
-              mouse.
-            </p>
-
-            <div className={styles.guide}>
-              <span className={styles.guideDot} />
-              <span>{statusLabel}</span>
-            </div>
-          </div>
-        </section>
-
-        <aside className={styles.side}>
-          <section className={`${styles.panel} ${styles.statusPanel}`}>
-            <p className={styles.eyebrow}>Status</p>
-            <h2 className={styles.panelTitle}>Gesture-first archive</h2>
-            <p className={styles.panelCopy}>
-              This page is static-deploy ready. The only live inputs are the webcam stream and your
-              hand landmarks in the browser.
-            </p>
-
-            <div className={styles.statusGrid}>
-              <div className={styles.statusItem}>
-                <p className={styles.statusLabel}>Camera</p>
-                <p className={styles.statusValue}>{state.permission}</p>
-              </div>
-              <div className={styles.statusItem}>
-                <p className={styles.statusLabel}>Gesture</p>
-                <p className={styles.statusValue}>{state.gesture}</p>
-              </div>
-              <div className={styles.statusItem}>
-                <p className={styles.statusLabel}>Target</p>
-                <p className={styles.statusValue}>{state.hoveredName}</p>
-              </div>
-              <div className={styles.statusItem}>
-                <p className={styles.statusLabel}>Select</p>
-                <p className={styles.statusValue}>Fist + hold {HOLD_MS / 1000}s</p>
-              </div>
-            </div>
-          </section>
-
-          <section className={`${styles.panel} ${styles.dock}`}>
-            <div className={styles.dockHeader}>
-              <div>
-                <h2 className={styles.dockTitle}>Work Dock</h2>
-                <p className={styles.dockCopy}>Static slots for your vibe-coded results.</p>
-              </div>
-            </div>
-
-            <div className={styles.linkList}>
-              {works.map((work) => {
-                const active = state.hoveredSlug === work.slug;
-
-                return (
-                  <Link
-                    key={work.slug}
-                    href={`/works/${work.slug}`}
-                    data-work-slug={work.slug}
-                    data-work-name={work.name}
-                    className={`${styles.linkCard} ${active ? styles.linkCardActive : ""}`}
-                  >
-                    <div className={styles.linkTop}>
-                      <h3 className={styles.linkName}>{work.name}</h3>
-                      <span className={styles.linkTag}>{work.status}</span>
-                    </div>
-                    <p className={styles.linkDescription}>{work.description}</p>
-                    <div className={styles.linkMeta}>
-                      {work.stack.map((item) => (
-                        <span key={item} className={styles.metaPill}>
-                          {item}
-                        </span>
-                      ))}
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          </section>
-        </aside>
-      </div>
+            return (
+              <Link
+                key={work.slug}
+                href={`/works/${work.slug}`}
+                data-work-slug={work.slug}
+                data-work-name={work.name}
+                className={`${styles.linkCard} ${active ? styles.linkCardActive : ""}`}
+              >
+                <div className={styles.linkTop}>
+                  <h2 className={styles.linkName}>{work.name}</h2>
+                  <span className={styles.linkTag}>{work.status}</span>
+                </div>
+                <p className={styles.linkDescription}>{work.description}</p>
+              </Link>
+            );
+          })}
+        </div>
+      </aside>
 
       <div
-        className={`${styles.reticle} ${state.gesture === "closed" ? styles.reticleClosed : ""}`}
+        className={`${styles.reticle} ${state.gesture === "closed" ? styles.reticleClosed : ""} ${
+          dockVisible ? styles.reticleVisible : ""
+        }`}
         style={{ transform: `translate3d(${pointer.x}px, ${pointer.y}px, 0)` }}
       >
         <div className={styles.reticleCore} />
-        <div className={styles.reticleLabel}>
-          {state.gesture === "closed" ? "Fist select" : "Hand cursor"}
-        </div>
       </div>
 
-      <video ref={videoRef} className={styles.video} autoPlay muted playsInline />
+      <video ref={videoRef} className={styles.hiddenVideo} autoPlay muted playsInline />
     </main>
   );
 }
