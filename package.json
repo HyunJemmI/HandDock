@@ -1,0 +1,14 @@
+{
+  "name": "handdock",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local portal browser for gesture-driven creative projects.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:hub": "npm run dev --workspace @handdock/hub",
+    "dev:lab": "npm run dev --workspace @handdock/hand-tracking-lab"
+  }
+}

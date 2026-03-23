@@ -1,0 +1,9 @@
+{
+  "name": "@handdock/hand-tracking-lab",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Gesture and camera experiments for HandDock.",
+  "scripts": {
+    "dev": "echo \"Hand tracking lab scaffold pending\""
+  }
+}

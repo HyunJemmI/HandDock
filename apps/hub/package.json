@@ -1,0 +1,9 @@
+{
+  "name": "@handdock/hub",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Portal hub for HandDock projects.",
+  "scripts": {
+    "dev": "echo \"Hub app scaffold pending\""
+  }
+}
