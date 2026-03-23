@@ -3,7 +3,22 @@
   "private": true,
   "version": "0.1.0",
   "description": "Portal hub for HandDock projects.",
+  "type": "module",
   "scripts": {
-    "dev": "echo \"Hub app scaffold pending\""
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@splinetool/react-spline": "^4.1.0",
+    "next": "^15.3.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.0",
+    "@types/react": "19.2.14",
+    "typescript": "5.9.3"
   }
 }
