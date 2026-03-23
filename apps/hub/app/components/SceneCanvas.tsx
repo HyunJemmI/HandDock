@@ -1,7 +1,12 @@
 "use client";
 
-import Spline from "@splinetool/react-spline/next";
+import dynamic from "next/dynamic";
 import styles from "../page.module.css";
+
+const Spline = dynamic(
+  () => import("./SplineRuntime").then((module) => module.default),
+  { ssr: false },
+);
 
 export function SceneCanvas() {
   return (
