@@ -136,7 +136,7 @@
   opacity: 1;
 }
 
-.reticleClosed {
+.reticlePinch {
   border-color: rgba(255, 212, 138, 0.95);
 }
 
@@ -147,7 +147,7 @@
   background: rgba(255, 255, 255, 0.8);
 }
 
-.reticleClosed .reticleCore {
+.reticlePinch .reticleCore {
   background: rgba(255, 212, 138, 0.95);
 }
 

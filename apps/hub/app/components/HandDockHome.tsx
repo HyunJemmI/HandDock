@@ -9,14 +9,14 @@ import { SceneCanvas } from "./SceneCanvas";
 type Landmark = { x: number; y: number };
 
 type TrackingState = {
-  ready: boolean;
-  permission: "idle" | "pending" | "granted" | "denied";
-  gesture: "open" | "closed" | "neutral" | "searching";
+  gesture: "open" | "pinch" | "neutral" | "searching";
   hoveredSlug: string | null;
 };
 
-const HOLD_MS = 850;
+const HOLD_MS = 280;
 const DOCK_VISIBILITY_MS = 2200;
+const POINTER_SMOOTHING = 0.34;
+const PINCH_THRESHOLD = 0.42;
 const loadVisionModule = new Function("moduleUrl", "return import(moduleUrl)") as (
   moduleUrl: string,
 ) => Promise<unknown>;
@@ -49,29 +49,21 @@ function isOpenPalm(points: Landmark[]) {
   return extendedCount >= 3 && spread > 1.35 && indexLift > 0.7 && middleLift > 0.7;
 }
 
-function isClosedFist(points: Landmark[]) {
-  const wrist = points[0];
+function isPinching(points: Landmark[]) {
   const scale = getHandScale(points);
-  const curlAverage =
-    (distance(points[8], wrist) +
-      distance(points[12], wrist) +
-      distance(points[16], wrist) +
-      distance(points[20], wrist)) /
-    (4 * scale);
-
-  return curlAverage < 1.95;
+  const pinchDistance = distance(points[4], points[8]) / scale;
+  return pinchDistance < PINCH_THRESHOLD;
 }
 
 export function HandDockHome() {
   const [state, setState] = useState<TrackingState>({
-    ready: false,
-    permission: "idle",
     gesture: "searching",
     hoveredSlug: null,
   });
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const [dockVisible, setDockVisible] = useState(false);
   const dockVisibleRef = useRef(false);
+  const pointerRef = useRef({ x: 0, y: 0 });
   const holdRef = useRef<{ slug: string | null; startedAt: number }>({
     slug: null,
     startedAt: 0,
@@ -80,6 +72,7 @@ export function HandDockHome() {
   const frameRef = useRef<number | null>(null);
   const dockTimerRef = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const hasPointerRef = useRef(false);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -105,8 +98,6 @@ export function HandDockHome() {
     }
 
     async function setup() {
-      setState((current) => ({ ...current, permission: "pending" }));
-
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
@@ -120,8 +111,6 @@ export function HandDockHome() {
         if (mounted) {
           setState((current) => ({
             ...current,
-            permission: "denied",
-            ready: false,
             gesture: "searching",
           }));
         }
@@ -178,12 +167,6 @@ export function HandDockHome() {
         return;
       }
 
-      setState((current) => ({
-        ...current,
-        permission: "granted",
-        ready: true,
-      }));
-
       const loop = () => {
         if (!videoRef.current || !handLandmarker) {
           return;
@@ -204,35 +187,50 @@ export function HandDockHome() {
           return;
         }
 
-        const cursor = hand[9];
-        const x = (1 - cursor.x) * window.innerWidth;
-        const y = cursor.y * window.innerHeight;
-        setPointer({ x, y });
+        const cursor = hand[8];
+        const targetX = (1 - cursor.x) * window.innerWidth;
+        const targetY = cursor.y * window.innerHeight;
+        if (!hasPointerRef.current) {
+          pointerRef.current = { x: targetX, y: targetY };
+          hasPointerRef.current = true;
+        }
+        const nextPointer = {
+          x: pointerRef.current.x + (targetX - pointerRef.current.x) * POINTER_SMOOTHING,
+          y: pointerRef.current.y + (targetY - pointerRef.current.y) * POINTER_SMOOTHING,
+        };
+        pointerRef.current = nextPointer;
+        setPointer(nextPointer);
 
         window.dispatchEvent(
-          new MouseEvent("mousemove", { clientX: x, clientY: y, bubbles: true }),
+          new MouseEvent("mousemove", {
+            clientX: nextPointer.x,
+            clientY: nextPointer.y,
+            bubbles: true,
+          }),
         );
         document.dispatchEvent(
           new PointerEvent("pointermove", {
-            clientX: x,
-            clientY: y,
+            clientX: nextPointer.x,
+            clientY: nextPointer.y,
             bubbles: true,
             pointerType: "mouse",
           }),
         );
 
         const palmOpen = isOpenPalm(hand);
-        const fistClosed = isClosedFist(hand);
+        const pinching = isPinching(hand);
         if (palmOpen) {
           revealDock();
         }
 
-        const hovered = document.elementFromPoint(x, y)?.closest("[data-work-slug]");
+        const hovered = document
+          .elementFromPoint(nextPointer.x, nextPointer.y)
+          ?.closest("[data-work-slug]");
         const hoveredSlug = dockVisibleRef.current
           ? hovered?.getAttribute("data-work-slug") ?? null
           : null;
 
-        if (fistClosed && hoveredSlug) {
+        if (pinching && hoveredSlug) {
           if (holdRef.current.slug !== hoveredSlug) {
             holdRef.current = { slug: hoveredSlug, startedAt: performance.now() };
             activatedRef.current = null;
@@ -247,14 +245,14 @@ export function HandDockHome() {
           }
         } else {
           holdRef.current = { slug: hoveredSlug, startedAt: performance.now() };
-          if (!fistClosed) {
+          if (!pinching) {
             activatedRef.current = null;
           }
         }
 
         setState((current) => ({
           ...current,
-          gesture: fistClosed ? "closed" : palmOpen ? "open" : "neutral",
+          gesture: pinching ? "pinch" : palmOpen ? "open" : "neutral",
           hoveredSlug,
         }));
 
@@ -313,7 +311,7 @@ export function HandDockHome() {
       </aside>
 
       <div
-        className={`${styles.reticle} ${state.gesture === "closed" ? styles.reticleClosed : ""} ${
+        className={`${styles.reticle} ${state.gesture === "pinch" ? styles.reticlePinch : ""} ${
           dockVisible ? styles.reticleVisible : ""
         }`}
         style={{ transform: `translate3d(${pointer.x}px, ${pointer.y}px, 0)` }}
