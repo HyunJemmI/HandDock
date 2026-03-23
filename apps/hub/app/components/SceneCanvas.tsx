@@ -1,12 +1,8 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import styles from "../page.module.css";
-
-const Spline = dynamic(
-  () => import("./SplineRuntime").then((module) => module.default),
-  { ssr: false },
-);
+// @ts-expect-error The package does not expose declarations for this internal bundle path.
+import Spline from "../../../../node_modules/@splinetool/react-spline/dist/react-spline.js";
 
 export function SceneCanvas() {
   return (
