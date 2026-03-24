@@ -62,4 +62,18 @@ export const works: WorkItem[] = [
     cardOffset: { x: 10, y: -12 },
     priority: 1,
   },
+  {
+    slug: "solar-orrery",
+    name: "Solar Orrery",
+    description:
+      "A gesture-controlled solar system atlas with orbital motion, planetary zoom, and procedural atmospherics.",
+    status: "In Progress",
+    stack: ["Canvas", "MediaPipe", "Procedural FX"],
+    year: "2026",
+    interactionType: "Left-hand zoom/click + right-hand drag",
+    accentLabel: "Orbit",
+    sceneAnchor: { x: 0.94, y: 0.1, z: 0.18 },
+    cardOffset: { x: 18, y: 14 },
+    priority: 4,
+  },
 ];

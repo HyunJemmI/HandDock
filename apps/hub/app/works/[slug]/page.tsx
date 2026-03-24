@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { SolarSystemExperience } from "../../components/SolarSystemExperience";
 import { WorkGestureBack } from "../../components/WorkGestureBack";
 import styles from "../../page.module.css";
 import { works } from "../../work-data";
@@ -18,6 +19,10 @@ export default async function WorkPage({
 
   if (!work) {
     notFound();
+  }
+
+  if (slug === "solar-orrery") {
+    return <SolarSystemExperience />;
   }
 
   return (

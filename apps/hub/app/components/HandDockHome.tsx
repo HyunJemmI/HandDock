@@ -8,14 +8,11 @@ import { works } from "../work-data";
 import {
   FINGERTIP_INDICES,
   GLOBAL_MENU_FLAG_KEY,
-  SWIPE_WINDOW_MS,
   type Landmark,
-  type TrailPoint,
   type Viewport,
   type VisionModule,
   clamp,
   clamp01,
-  detectBackSwipe,
   getGripPoint,
   getHandScale,
   getLargestHand,
@@ -73,6 +70,7 @@ const POINTER_SMOOTHING = 0.32;
 const CURSOR_GAIN_X = 1.78;
 const CURSOR_GAIN_Y = 1.58;
 const MENU_ENTRY_COOLDOWN_MS = 520;
+const MENU_CLOSE_HOLD_MS = 220;
 const LOW_LIGHT_THRESHOLD = 44;
 const FINGERTIP_COLORS = ["#f7c66a", "#8af4dd", "#f4f7fb", "#f39bd8", "#78b9ff"];
 
@@ -346,7 +344,7 @@ export function HandDockHome({
   const frameRef = useRef<number | null>(null);
   const armedActionRef = useRef<string | null>(null);
   const previousGestureRef = useRef<Gesture>("searching");
-  const swipeTrailRef = useRef<TrailPoint[]>([]);
+  const menuCloseArmedAtRef = useRef<number | null>(null);
   const menuCooldownUntilRef = useRef(0);
   const brightnessRef = useRef(255);
   const brightnessSampleFrameRef = useRef(0);
@@ -377,14 +375,14 @@ export function HandDockHome({
     modeRef.current = "menu";
     setMode("menu");
     armedActionRef.current = null;
-    swipeTrailRef.current = [];
+    menuCloseArmedAtRef.current = null;
   }
 
   function closeMenu() {
     modeRef.current = "landing";
     setMode("landing");
     armedActionRef.current = null;
-    swipeTrailRef.current = [];
+    menuCloseArmedAtRef.current = null;
   }
 
   function activateAction(actionId: string) {
@@ -510,7 +508,7 @@ export function HandDockHome({
         if (!pointerHand) {
           drawFingertipPreview(previewCanvasRef.current, videoRef.current, [], undefined, undefined, false);
           armedActionRef.current = null;
-          swipeTrailRef.current = [];
+          menuCloseArmedAtRef.current = null;
           previousGestureRef.current = "searching";
           setState({
             gesture: "searching",
@@ -576,15 +574,16 @@ export function HandDockHome({
         }
 
         if (!shouldContinue && modeRef.current === "menu") {
-          swipeTrailRef.current = [
-            ...swipeTrailRef.current.filter((item) => now - item.time < SWIPE_WINDOW_MS),
-            { x: nextPointer.x, y: nextPointer.y, time: now },
-          ];
-
-          if (detectBackSwipe(swipeTrailRef.current, viewport)) {
-            nextIntent = "back-swipe";
-            closeMenu();
-            shouldContinue = true;
+          if (leftClustered && !hoveredAction) {
+            if (!menuCloseArmedAtRef.current) {
+              menuCloseArmedAtRef.current = now;
+            } else if (now - menuCloseArmedAtRef.current >= MENU_CLOSE_HOLD_MS) {
+              nextIntent = "back-swipe";
+              closeMenu();
+              shouldContinue = true;
+            }
+          } else {
+            menuCloseArmedAtRef.current = null;
           }
         }
 
