@@ -415,6 +415,7 @@ export function HandDockHome({
   const brightnessRef = useRef(255);
   const brightnessSampleFrameRef = useRef(0);
   const modeRef = useRef<Mode>("landing");
+  const navigatingRef = useRef(false);
 
   const menuLayout = useMemo(
     () => buildMenuNodes(viewport, { x: -0.16, y: 0.22 }),
@@ -438,6 +439,12 @@ export function HandDockHome({
     setMode("menu");
   }, []);
 
+  useEffect(() => {
+    works.forEach((work) => {
+      router.prefetch(`/works/${work.slug}`);
+    });
+  }, [router]);
+
   function openMenu() {
     if (modeRef.current === "menu") {
       return;
@@ -456,6 +463,10 @@ export function HandDockHome({
   }
 
   function activateAction(actionId: string) {
+    if (navigatingRef.current) {
+      return;
+    }
+
     if (actionId === MENU_BUTTON_ID) {
       openMenu();
       return;
@@ -463,7 +474,9 @@ export function HandDockHome({
 
     if (actionId.startsWith("project:")) {
       const slug = actionId.replace("project:", "");
-      router.push(`/works/${slug}`);
+      navigatingRef.current = true;
+      menuCooldownUntilRef.current = Number.POSITIVE_INFINITY;
+      window.location.assign(`/works/${slug}`);
     }
   }
 
