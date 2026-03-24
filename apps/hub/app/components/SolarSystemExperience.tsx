@@ -669,8 +669,8 @@ export function SolarSystemExperience() {
         pointerRef.current = nextPointer;
         setPointer(nextPointer);
 
-        const rightGrab = isHandClustered(pointerHand);
-        if (rightGrab) {
+        const rightPinched = isPinched(pointerHand);
+        if (rightPinched) {
           if (!dragStateRef.current.active) {
             dragStateRef.current = {
               active: true,
@@ -948,7 +948,7 @@ export function SolarSystemExperience() {
         </aside>
 
         <div className={styles.hintBar}>
-          <span className={styles.hint}>Right hand grab + move: drag view</span>
+          <span className={styles.hint}>Right pinch + move: drag view</span>
           <span className={styles.hint}>Left hand spread: zoom</span>
           <span className={styles.hint}>Left pinch on body: focus</span>
           <span className={styles.hint}>Left fist then open: return to menu</span>

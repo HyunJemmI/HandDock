@@ -70,7 +70,6 @@ const MENU_BUTTON_ID = "menu-button";
 const POINTER_SMOOTHING = 0.32;
 const CURSOR_GAIN_X = 1.78;
 const CURSOR_GAIN_Y = 1.58;
-const ACTION_OPEN_HOLD_MS = 220;
 const MENU_ENTRY_COOLDOWN_MS = 520;
 const MENU_CLOSE_HOLD_MS = 220;
 const LOW_LIGHT_THRESHOLD = 44;
@@ -120,6 +119,17 @@ function rectanglesOverlap(
   );
 }
 
+function buildMenuAnchor(index: number, total: number) {
+  const count = Math.max(total, 1);
+  const angle = -Math.PI / 2 + (index / count) * Math.PI * 2;
+  const radialScale = count > 5 && index % 2 === 0 ? 0.86 : 0.94;
+  const x = Math.cos(angle) * radialScale;
+  const y = Math.sin(angle) * 0.68;
+  const z = clamp(0.22 + Math.cos(angle - Math.PI / 8) * 0.28, -0.22, 0.7);
+
+  return { x, y, z };
+}
+
 function buildMenuNodes(viewport: Viewport, rotation: Rotation) {
   const centerX = viewport.width * 0.5;
   const centerY = viewport.height * 0.5;
@@ -129,8 +139,8 @@ function buildMenuNodes(viewport: Viewport, rotation: Rotation) {
   const cardInset = 28;
   const cardGap = 30;
 
-  const nodes = works.map((work) => {
-    const rotated = rotatePoint(work.sceneAnchor, rotation);
+  const nodes = works.map((work, index) => {
+    const rotated = rotatePoint(buildMenuAnchor(index, works.length), rotation);
     const depth = (rotated.z + 1) / 2;
     const x = centerX + rotated.x * radius;
     const y = centerY + rotated.y * radius * 0.72;
@@ -156,7 +166,7 @@ function buildMenuNodes(viewport: Viewport, rotation: Rotation) {
       y,
       size,
       depth,
-      visible: depth > 0.08,
+      visible: true,
       cardSide,
       cardX,
       cardY,
@@ -248,8 +258,7 @@ function buildMenuNodes(viewport: Viewport, rotation: Rotation) {
       }
 
       return [];
-    })
-    .sort((left, right) => left.depth - right.depth);
+    });
 
   return { nodes, visibleNodes };
 }
@@ -401,8 +410,6 @@ export function HandDockHome({
   const lightCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<number | null>(null);
   const previousGestureRef = useRef<Gesture>("searching");
-  const openActionRef = useRef<string | null>(null);
-  const openActionStartedAtRef = useRef<number | null>(null);
   const menuCloseArmedAtRef = useRef<number | null>(null);
   const menuCooldownUntilRef = useRef(0);
   const brightnessRef = useRef(255);
@@ -413,6 +420,12 @@ export function HandDockHome({
     () => buildMenuNodes(viewport, { x: -0.16, y: 0.22 }),
     [viewport],
   );
+  const activeMenuNode =
+    mode === "menu"
+      ? menuLayout.nodes.find((node) => node.actionId === state.hoveredAction && node.visible) ??
+        menuLayout.visibleNodes[0] ??
+        null
+      : null;
 
   useEffect(() => {
     if (sessionStorage.getItem(GLOBAL_MENU_FLAG_KEY) !== "1") {
@@ -433,16 +446,12 @@ export function HandDockHome({
     menuCooldownUntilRef.current = performance.now() + MENU_ENTRY_COOLDOWN_MS;
     modeRef.current = "menu";
     setMode("menu");
-    openActionRef.current = null;
-    openActionStartedAtRef.current = null;
     menuCloseArmedAtRef.current = null;
   }
 
   function closeMenu() {
     modeRef.current = "landing";
     setMode("landing");
-    openActionRef.current = null;
-    openActionStartedAtRef.current = null;
     menuCloseArmedAtRef.current = null;
   }
 
@@ -568,8 +577,6 @@ export function HandDockHome({
 
         if (!pointerHand) {
           drawFingertipPreview(previewCanvasRef.current, videoRef.current, [], undefined, undefined, false);
-          openActionRef.current = null;
-          openActionStartedAtRef.current = null;
           menuCloseArmedAtRef.current = null;
           previousGestureRef.current = "searching";
           setState({
@@ -612,6 +619,7 @@ export function HandDockHome({
             ?.getAttribute("data-action-id") ?? null;
 
         const nextGesture: Gesture = leftClustered ? "clenched" : leftOpen ? "open" : "neutral";
+        const openGestureTriggered = previousGestureRef.current !== "open" && nextGesture === "open";
 
         let nextIntent: Intent = "idle";
         let shouldContinue = false;
@@ -652,26 +660,13 @@ export function HandDockHome({
 
         if (
           !shouldContinue &&
-          leftOpen &&
+          openGestureTriggered &&
           hoveredAction &&
           canTriggerPrimary
         ) {
           nextIntent = "selection";
-          if (openActionRef.current !== hoveredAction) {
-            openActionRef.current = hoveredAction;
-            openActionStartedAtRef.current = now;
-          } else if (
-            openActionStartedAtRef.current &&
-            now - openActionStartedAtRef.current >= ACTION_OPEN_HOLD_MS
-          ) {
-            menuCooldownUntilRef.current = now + MENU_ENTRY_COOLDOWN_MS;
-            activateAction(hoveredAction);
-            openActionRef.current = null;
-            openActionStartedAtRef.current = null;
-          }
-        } else {
-          openActionRef.current = null;
-          openActionStartedAtRef.current = null;
+          menuCooldownUntilRef.current = now + MENU_ENTRY_COOLDOWN_MS;
+          activateAction(hoveredAction);
         }
 
         previousGestureRef.current = nextGesture;
@@ -736,17 +731,16 @@ export function HandDockHome({
       {mode === "menu" ? (
         <section className={styles.menuOverlay}>
           <svg className={styles.menuLines} aria-hidden="true">
-            {menuLayout.visibleNodes.map((node) => (
+            {activeMenuNode ? (
               <line
-                key={node.slug}
-                x1={node.x}
-                y1={node.y}
-                x2={node.connectorX}
-                y2={node.cardY + 46}
+                x1={activeMenuNode.x}
+                y1={activeMenuNode.y}
+                x2={activeMenuNode.connectorX}
+                y2={activeMenuNode.cardY + 46}
                 className={styles.menuConnector}
-                style={{ opacity: node.cardOpacity }}
+                style={{ opacity: activeMenuNode.cardOpacity }}
               />
-            ))}
+            ) : null}
           </svg>
 
           {menuLayout.nodes.map((node) =>
@@ -771,36 +765,36 @@ export function HandDockHome({
             ) : null,
           )}
 
-          {menuLayout.visibleNodes.map((node) => (
+          {activeMenuNode ? (
             <article
-              key={node.slug}
+              key={activeMenuNode.slug}
               className={`${styles.menuCard} ${
-                state.hoveredAction === node.actionId ? styles.menuCardActive : ""
+                state.hoveredAction === activeMenuNode.actionId ? styles.menuCardActive : ""
               }`}
               style={{
-                left: node.cardX,
-                top: node.cardY,
-                width: node.cardWidth,
-                ["--card-scale" as string]: node.cardScale.toString(),
-                ["--card-opacity" as string]: node.cardOpacity.toString(),
+                left: activeMenuNode.cardX,
+                top: activeMenuNode.cardY,
+                width: activeMenuNode.cardWidth,
+                ["--card-scale" as string]: activeMenuNode.cardScale.toString(),
+                ["--card-opacity" as string]: activeMenuNode.cardOpacity.toString(),
               }}
             >
               <p className={styles.menuCardStatus}>
-                {node.accentLabel} / {node.year}
+                {activeMenuNode.accentLabel} / {activeMenuNode.year}
               </p>
-              <h2 className={styles.menuCardTitle}>{node.name}</h2>
-              <p className={styles.menuCardCopy}>{node.description}</p>
+              <h2 className={styles.menuCardTitle}>{activeMenuNode.name}</h2>
+              <p className={styles.menuCardCopy}>{activeMenuNode.description}</p>
               <div className={styles.menuCardMeta}>
-                <span className={styles.menuMetaPill}>{node.status}</span>
-                <span className={styles.menuMetaPill}>{node.interactionType}</span>
-                {node.stack.map((item) => (
+                <span className={styles.menuMetaPill}>{activeMenuNode.status}</span>
+                <span className={styles.menuMetaPill}>{activeMenuNode.interactionType}</span>
+                {activeMenuNode.stack.map((item) => (
                   <span key={item} className={styles.menuMetaPill}>
                     {item}
                   </span>
                 ))}
               </div>
             </article>
-          ))}
+          ) : null}
         </section>
       ) : null}
 
