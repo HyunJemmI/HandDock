@@ -26,8 +26,8 @@ import {
 } from "./hand-tracking";
 
 type Mode = "landing" | "menu";
-type Gesture = "open" | "clenched" | "grab" | "neutral" | "searching";
-type Intent = "idle" | "menu-intent" | "selection" | "rotation" | "back-swipe";
+type Gesture = "open" | "clenched" | "neutral" | "searching";
+type Intent = "idle" | "menu-intent" | "selection" | "back-swipe";
 type Rotation = { x: number; y: number };
 type SensorState = "tracking" | "searching" | "camera-blocked" | "low-light";
 
@@ -336,28 +336,26 @@ export function HandDockHome({
     statusLabel: "Searching for hand",
   });
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
-  const [rotation, setRotation] = useState<Rotation>({ x: -0.16, y: 0.22 });
   const [viewport, setViewport] = useState<Viewport>({ width: 1280, height: 720 });
   const pointerRef = useRef({ x: 0, y: 0 });
   const hasPointerRef = useRef(false);
   const robotSceneRef = useRef<HTMLDivElement | null>(null);
-  const brainSceneRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const lightCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<number | null>(null);
   const armedActionRef = useRef<string | null>(null);
   const previousGestureRef = useRef<Gesture>("searching");
-  const grabAnchorRef = useRef<Landmark | null>(null);
-  const brainDragActiveRef = useRef(false);
-  const rotationDragMovedRef = useRef(false);
   const swipeTrailRef = useRef<TrailPoint[]>([]);
   const menuCooldownUntilRef = useRef(0);
   const brightnessRef = useRef(255);
   const brightnessSampleFrameRef = useRef(0);
   const modeRef = useRef<Mode>("landing");
 
-  const menuLayout = useMemo(() => buildMenuNodes(viewport, rotation), [viewport, rotation]);
+  const menuLayout = useMemo(
+    () => buildMenuNodes(viewport, { x: -0.16, y: 0.22 }),
+    [viewport],
+  );
 
   useEffect(() => {
     if (sessionStorage.getItem(GLOBAL_MENU_FLAG_KEY) !== "1") {
@@ -379,22 +377,13 @@ export function HandDockHome({
     modeRef.current = "menu";
     setMode("menu");
     armedActionRef.current = null;
-    grabAnchorRef.current = null;
-    brainDragActiveRef.current = false;
-    rotationDragMovedRef.current = false;
     swipeTrailRef.current = [];
   }
 
   function closeMenu() {
-    if (brainDragActiveRef.current) {
-      dispatchScenePointer(brainSceneRef.current, "up", pointerRef.current.x, pointerRef.current.y);
-    }
     modeRef.current = "landing";
     setMode("landing");
     armedActionRef.current = null;
-    grabAnchorRef.current = null;
-    brainDragActiveRef.current = false;
-    rotationDragMovedRef.current = false;
     swipeTrailRef.current = [];
   }
 
@@ -520,18 +509,7 @@ export function HandDockHome({
 
         if (!pointerHand) {
           drawFingertipPreview(previewCanvasRef.current, videoRef.current, [], undefined, undefined, false);
-          if (brainDragActiveRef.current) {
-            dispatchScenePointer(
-              brainSceneRef.current,
-              "up",
-              pointerRef.current.x,
-              pointerRef.current.y,
-            );
-          }
           armedActionRef.current = null;
-          grabAnchorRef.current = null;
-          brainDragActiveRef.current = false;
-          rotationDragMovedRef.current = false;
           swipeTrailRef.current = [];
           previousGestureRef.current = "searching";
           setState({
@@ -572,14 +550,7 @@ export function HandDockHome({
             ?.closest("[data-action-id]")
             ?.getAttribute("data-action-id") ?? null;
 
-        const nextGesture: Gesture =
-          modeRef.current === "menu" && leftClustered
-            ? "grab"
-            : leftClustered
-              ? "clenched"
-              : leftOpen
-                ? "open"
-                : "neutral";
+        const nextGesture: Gesture = leftClustered ? "clenched" : leftOpen ? "open" : "neutral";
 
         let nextIntent: Intent = "idle";
         let shouldContinue = false;
@@ -617,57 +588,17 @@ export function HandDockHome({
           }
         }
 
-        if (!shouldContinue && modeRef.current === "menu" && leftClustered) {
-          nextIntent = "rotation";
-          if (!brainDragActiveRef.current) {
-            dispatchScenePointer(brainSceneRef.current, "down", nextPointer.x, nextPointer.y);
-            brainDragActiveRef.current = true;
-          } else {
-            dispatchScenePointer(brainSceneRef.current, "move", nextPointer.x, nextPointer.y);
-          }
-
-          const gripPoint = pointerHand[8];
-          if (grabAnchorRef.current) {
-            const deltaX = gripPoint.x - grabAnchorRef.current.x;
-            const deltaY = gripPoint.y - grabAnchorRef.current.y;
-
-            if (Math.abs(deltaX) + Math.abs(deltaY) > 0.012) {
-              rotationDragMovedRef.current = true;
-              armedActionRef.current = null;
-            }
-
-            setRotation((current) => ({
-              x: clamp(current.x + deltaY * 4.1, -0.75, 0.75),
-              y: current.y + deltaX * 6.2,
-            }));
-          }
-          grabAnchorRef.current = gripPoint;
-        } else {
-          if (brainDragActiveRef.current) {
-            dispatchScenePointer(brainSceneRef.current, "up", nextPointer.x, nextPointer.y);
-          }
-          brainDragActiveRef.current = false;
-          grabAnchorRef.current = null;
-        }
-
-        if (
-          !shouldContinue &&
-          leftClustered &&
-          hoveredAction &&
-          canTriggerPrimary &&
-          !rotationDragMovedRef.current
-        ) {
+        if (!shouldContinue && leftClustered && hoveredAction && canTriggerPrimary) {
           armedActionRef.current = hoveredAction;
         }
 
         if (
           !shouldContinue &&
-          (previousGestureRef.current === "clenched" || previousGestureRef.current === "grab") &&
+          previousGestureRef.current === "clenched" &&
           nextGesture === "open" &&
           armedActionRef.current &&
           hoveredAction === armedActionRef.current &&
-          canTriggerPrimary &&
-          !rotationDragMovedRef.current
+          canTriggerPrimary
         ) {
           nextIntent = "selection";
           activateAction(armedActionRef.current);
@@ -676,10 +607,6 @@ export function HandDockHome({
 
         if (!leftClustered && nextGesture !== "open") {
           armedActionRef.current = null;
-        }
-
-        if (!leftClustered) {
-          rotationDragMovedRef.current = false;
         }
 
         previousGestureRef.current = nextGesture;
@@ -704,9 +631,6 @@ export function HandDockHome({
       if (frameRef.current) {
         cancelAnimationFrame(frameRef.current);
       }
-      if (brainDragActiveRef.current) {
-        dispatchScenePointer(brainSceneRef.current, "up", pointerRef.current.x, pointerRef.current.y);
-      }
       handLandmarker?.close();
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
@@ -725,7 +649,6 @@ export function HandDockHome({
       </div>
 
       <div
-        ref={brainSceneRef}
         className={`${styles.sceneLayer} ${mode === "menu" ? styles.sceneLayerActive : ""}`}
         aria-hidden={mode !== "menu"}
       >
@@ -817,9 +740,9 @@ export function HandDockHome({
       ) : null}
 
       <div
-        className={`${styles.reticle} ${
-          state.intent === "selection" || state.intent === "rotation" ? styles.reticleArmed : ""
-        } ${state.gesture !== "searching" ? styles.reticleVisible : ""}`}
+        className={`${styles.reticle} ${state.intent === "selection" ? styles.reticleArmed : ""} ${
+          state.gesture !== "searching" ? styles.reticleVisible : ""
+        }`}
         style={{ transform: `translate3d(${pointer.x}px, ${pointer.y}px, 0)` }}
       >
         <div className={styles.reticleCore} />
