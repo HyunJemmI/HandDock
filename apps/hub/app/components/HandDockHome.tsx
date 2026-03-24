@@ -56,7 +56,11 @@ type MenuNode = {
   size: number;
   depth: number;
   visible: boolean;
+  cardSide: -1 | 1;
+  cardX: number;
   cardY: number;
+  cardWidth: number;
+  connectorX: number;
 };
 
 const MENU_BUTTON_ID = "menu-button";
@@ -195,40 +199,87 @@ function rotatePoint(
 }
 
 function buildMenuNodes(viewport: Viewport, rotation: Rotation) {
-  const centerX = viewport.width * 0.38;
+  const centerX = viewport.width * 0.5;
   const centerY = viewport.height * 0.5;
-  const radius = Math.min(viewport.width, viewport.height) * 0.23;
-  const panelTop = 110;
+  const radius = Math.min(viewport.width, viewport.height) * 0.24;
+  const cardWidth = clamp(viewport.width * 0.2, 200, 280);
+  const cardHeightEstimate = 134;
+  const cardInset = 28;
+  const cardGap = 28;
 
   const nodes = works.map((work, index) => {
     const rotated = rotatePoint(MENU_POINTS[index % MENU_POINTS.length], rotation);
     const depth = (rotated.z + 1) / 2;
+    const x = centerX + rotated.x * radius;
+    const y = centerY + rotated.y * radius * 0.72;
+    const size = 26 + depth * 26;
+    const cardSide = rotated.x >= 0 ? 1 : -1;
+    const rawCardX =
+      x + cardSide * (size * 0.72 + cardGap) - (cardSide < 0 ? cardWidth : 0);
+    const cardX = clamp(rawCardX, cardInset, viewport.width - cardWidth - cardInset);
+    const cardY = clamp(
+      y - cardHeightEstimate * 0.42,
+      cardInset,
+      viewport.height - cardHeightEstimate - cardInset,
+    );
 
     return {
       ...work,
       actionId: `project:${work.slug}`,
-      x: centerX + rotated.x * radius,
-      y: centerY + rotated.y * radius * 0.72,
-      size: 26 + depth * 26,
+      x,
+      y,
+      size,
       depth,
       visible: depth > 0.08,
-      cardY: panelTop,
+      cardSide,
+      cardX,
+      cardY,
+      cardWidth,
+      connectorX: cardSide > 0 ? cardX : cardX + cardWidth,
     };
   });
 
-  const visibleNodes = nodes
-    .filter((node) => node.visible)
-    .sort((left, right) => left.y - right.y)
-    .map((node, index) => ({
-      ...node,
-      cardY: panelTop + index * 132,
-    }));
+  const visibleNodes = [-1, 1].flatMap((side) => {
+    const sideNodes = nodes
+      .filter((node) => node.visible && node.cardSide === side)
+      .sort((left, right) => left.cardY - right.cardY)
+      .map((node) => ({ ...node }));
 
-  return {
-    nodes,
-    visibleNodes,
-    panelLeft: Math.max(viewport.width * 0.7, viewport.width - 360),
-  };
+    for (let index = 1; index < sideNodes.length; index += 1) {
+      const previous = sideNodes[index - 1];
+      const current = sideNodes[index];
+      const minimumY = previous.cardY + cardHeightEstimate - 18;
+
+      if (current.cardY < minimumY) {
+        current.cardY = minimumY;
+      }
+    }
+
+    const overflow =
+      sideNodes.length > 0
+        ? sideNodes[sideNodes.length - 1].cardY + cardHeightEstimate - (viewport.height - cardInset)
+        : 0;
+
+    if (overflow > 0) {
+      sideNodes.forEach((node) => {
+        node.cardY -= overflow;
+      });
+    }
+
+    const topUnderflow = sideNodes.length > 0 ? cardInset - sideNodes[0].cardY : 0;
+    if (topUnderflow > 0) {
+      sideNodes.forEach((node) => {
+        node.cardY += topUnderflow;
+      });
+    }
+
+    return sideNodes.map((node) => ({
+      ...node,
+      connectorX: node.cardSide > 0 ? node.cardX : node.cardX + node.cardWidth,
+    }));
+  });
+
+  return { nodes, visibleNodes };
 }
 
 function drawFingertipPreview(
@@ -317,6 +368,39 @@ function detectBackSwipe(trail: TrailPoint[], viewport: Viewport) {
   );
 }
 
+function dispatchScenePointer(
+  sceneRoot: HTMLDivElement | null,
+  phase: "move" | "down" | "up",
+  x: number,
+  y: number,
+) {
+  const canvas = sceneRoot?.querySelector("canvas");
+  if (!canvas) {
+    return;
+  }
+
+  const pointerType =
+    phase === "down" ? "pointerdown" : phase === "up" ? "pointerup" : "pointermove";
+  const mouseType = phase === "down" ? "mousedown" : phase === "up" ? "mouseup" : "mousemove";
+  const buttons = phase === "up" ? 0 : phase === "down" ? 1 : 1;
+  const options = {
+    clientX: x,
+    clientY: y,
+    bubbles: true,
+    button: 0,
+    buttons,
+  };
+
+  canvas.dispatchEvent(
+    new PointerEvent(pointerType, {
+      ...options,
+      pointerType: "mouse",
+      isPrimary: true,
+    }),
+  );
+  canvas.dispatchEvent(new MouseEvent(mouseType, options));
+}
+
 export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("landing");
@@ -330,12 +414,15 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
   const pointerRef = useRef({ x: 0, y: 0 });
   const hasPointerRef = useRef(false);
   const robotSceneRef = useRef<HTMLDivElement | null>(null);
+  const brainSceneRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<number | null>(null);
   const armedActionRef = useRef<string | null>(null);
   const previousGestureRef = useRef<Gesture>("searching");
   const grabAnchorRef = useRef<Landmark | null>(null);
+  const brainDragActiveRef = useRef(false);
+  const rotationDragMovedRef = useRef(false);
   const swipeTrailRef = useRef<TrailPoint[]>([]);
   const modeRef = useRef<Mode>("landing");
 
@@ -346,14 +433,21 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
     setMode("menu");
     armedActionRef.current = null;
     grabAnchorRef.current = null;
+    brainDragActiveRef.current = false;
+    rotationDragMovedRef.current = false;
     swipeTrailRef.current = [];
   }
 
   function closeMenu() {
+    if (brainDragActiveRef.current) {
+      dispatchScenePointer(brainSceneRef.current, "up", pointerRef.current.x, pointerRef.current.y);
+    }
     modeRef.current = "landing";
     setMode("landing");
     armedActionRef.current = null;
     grabAnchorRef.current = null;
+    brainDragActiveRef.current = false;
+    rotationDragMovedRef.current = false;
     swipeTrailRef.current = [];
   }
 
@@ -370,24 +464,7 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
   }
 
   function dispatchRobotPointer(x: number, y: number) {
-    const canvas = robotSceneRef.current?.querySelector("canvas");
-    if (!canvas) {
-      return;
-    }
-
-    const eventOptions = {
-      clientX: x,
-      clientY: y,
-      bubbles: true,
-    };
-
-    canvas.dispatchEvent(
-      new PointerEvent("pointermove", {
-        ...eventOptions,
-        pointerType: "mouse",
-      }),
-    );
-    canvas.dispatchEvent(new MouseEvent("mousemove", eventOptions));
+    dispatchScenePointer(robotSceneRef.current, "move", x, y);
   }
 
   useEffect(() => {
@@ -485,8 +562,18 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
 
         if (!pointerHand) {
           drawFingertipPreview(previewCanvasRef.current, videoRef.current, [], undefined, undefined, false);
+          if (brainDragActiveRef.current) {
+            dispatchScenePointer(
+              brainSceneRef.current,
+              "up",
+              pointerRef.current.x,
+              pointerRef.current.y,
+            );
+          }
           armedActionRef.current = null;
           grabAnchorRef.current = null;
+          brainDragActiveRef.current = false;
+          rotationDragMovedRef.current = false;
           swipeTrailRef.current = [];
           previousGestureRef.current = "searching";
           setState({
@@ -516,7 +603,6 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
 
         const leftOpen = actionHand ? isOpenPalm(actionHand) : false;
         const leftClustered = actionHand ? isHandClustered(actionHand) : false;
-        const rightClustered = pointerHand ? isHandClustered(pointerHand) : false;
         drawFingertipPreview(
           previewCanvasRef.current,
           videoRef.current,
@@ -532,22 +618,38 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
             ?.closest("[data-action-id]")
             ?.getAttribute("data-action-id") ?? null;
 
-        if (leftClustered && hoveredAction) {
+        const isMenuDragArmed = modeRef.current === "menu" && leftClustered;
+        if (leftClustered && hoveredAction && !rotationDragMovedRef.current) {
           armedActionRef.current = hoveredAction;
         }
 
-        if (modeRef.current === "menu" && rightClustered) {
-          const gripPoint = getGripPoint(pointerHand);
+        if (isMenuDragArmed) {
+          if (!brainDragActiveRef.current) {
+            dispatchScenePointer(brainSceneRef.current, "down", nextPointer.x, nextPointer.y);
+            brainDragActiveRef.current = true;
+          } else {
+            dispatchScenePointer(brainSceneRef.current, "move", nextPointer.x, nextPointer.y);
+          }
+
+          const gripPoint = pointerHand[8];
           if (grabAnchorRef.current) {
             const deltaX = gripPoint.x - grabAnchorRef.current.x;
             const deltaY = gripPoint.y - grabAnchorRef.current.y;
+            if (Math.abs(deltaX) + Math.abs(deltaY) > 0.012) {
+              rotationDragMovedRef.current = true;
+              armedActionRef.current = null;
+            }
             setRotation((current) => ({
-              x: clamp(current.x + deltaY * 3.8, -0.75, 0.75),
-              y: current.y + deltaX * 5.8,
+              x: clamp(current.x + deltaY * 4.1, -0.75, 0.75),
+              y: current.y + deltaX * 6.2,
             }));
           }
           grabAnchorRef.current = gripPoint;
         } else {
+          if (brainDragActiveRef.current) {
+            dispatchScenePointer(brainSceneRef.current, "up", nextPointer.x, nextPointer.y);
+          }
+          brainDragActiveRef.current = false;
           grabAnchorRef.current = null;
         }
 
@@ -566,19 +668,20 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
           return;
         }
 
-        const gesture: Gesture = leftClustered
-          ? "clenched"
-          : rightClustered && modeRef.current === "menu"
-            ? "grab"
+        const gesture: Gesture = isMenuDragArmed
+          ? "grab"
+          : leftClustered
+            ? "clenched"
             : leftOpen
               ? "open"
-            : "neutral";
+              : "neutral";
 
         if (
-          previousGestureRef.current === "clenched" &&
+          (previousGestureRef.current === "clenched" || previousGestureRef.current === "grab") &&
           gesture === "open" &&
           armedActionRef.current &&
-          hoveredAction === armedActionRef.current
+          hoveredAction === armedActionRef.current &&
+          !rotationDragMovedRef.current
         ) {
           activateAction(armedActionRef.current);
           armedActionRef.current = null;
@@ -586,6 +689,10 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
 
         if (!leftClustered && gesture !== "open") {
           armedActionRef.current = null;
+        }
+
+        if (!leftClustered) {
+          rotationDragMovedRef.current = false;
         }
 
         previousGestureRef.current = gesture;
@@ -607,6 +714,9 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
       if (frameRef.current) {
         cancelAnimationFrame(frameRef.current);
       }
+      if (brainDragActiveRef.current) {
+        dispatchScenePointer(brainSceneRef.current, "up", pointerRef.current.x, pointerRef.current.y);
+      }
       handLandmarker?.close();
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
@@ -625,6 +735,7 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
       </div>
 
       <div
+        ref={brainSceneRef}
         className={`${styles.sceneLayer} ${mode === "menu" ? styles.sceneLayerActive : ""}`}
         aria-hidden={mode !== "menu"}
       >
@@ -652,8 +763,8 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
                 key={node.slug}
                 x1={node.x}
                 y1={node.y}
-                x2={menuLayout.panelLeft}
-                y2={node.cardY + 42}
+                x2={node.connectorX}
+                y2={node.cardY + 44}
                 className={styles.menuConnector}
               />
             ))}
@@ -680,28 +791,30 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
             ) : null,
           )}
 
-          <div className={styles.menuPanel} style={{ left: menuLayout.panelLeft }}>
-            {menuLayout.visibleNodes.map((node) => (
-              <article
-                key={node.slug}
-                className={`${styles.menuCard} ${
-                  state.hoveredAction === node.actionId ? styles.menuCardActive : ""
-                }`}
-                style={{ top: node.cardY }}
-              >
-                <p className={styles.menuCardStatus}>{node.status}</p>
-                <h2 className={styles.menuCardTitle}>{node.name}</h2>
-                <p className={styles.menuCardCopy}>{node.description}</p>
-                <div className={styles.menuCardMeta}>
-                  {node.stack.map((item) => (
-                    <span key={item} className={styles.menuMetaPill}>
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              </article>
-            ))}
-          </div>
+          {menuLayout.visibleNodes.map((node) => (
+            <article
+              key={node.slug}
+              className={`${styles.menuCard} ${
+                state.hoveredAction === node.actionId ? styles.menuCardActive : ""
+              }`}
+              style={{
+                left: node.cardX,
+                top: node.cardY,
+                width: node.cardWidth,
+              }}
+            >
+              <p className={styles.menuCardStatus}>{node.status}</p>
+              <h2 className={styles.menuCardTitle}>{node.name}</h2>
+              <p className={styles.menuCardCopy}>{node.description}</p>
+              <div className={styles.menuCardMeta}>
+                {node.stack.map((item) => (
+                  <span key={item} className={styles.menuMetaPill}>
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </article>
+          ))}
         </section>
       ) : null}
 

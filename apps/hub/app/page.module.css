@@ -115,7 +115,7 @@
 }
 
 .menuConnector {
-  stroke: rgba(255, 255, 255, 0.22);
+  stroke: rgba(255, 255, 255, 0.2);
   stroke-width: 1.2;
 }
 
@@ -148,22 +148,15 @@
     0 0 0 6px rgba(255, 212, 138, 0.07);
 }
 
-.menuPanel {
-  position: absolute;
-  top: 0;
-  width: min(320px, 26vw);
-  height: 100%;
-}
-
 .menuCard {
   position: absolute;
-  width: 100%;
   padding: 18px 18px 16px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 24px;
   background: rgba(8, 8, 8, 0.84);
   box-shadow: 0 20px 70px rgba(0, 0, 0, 0.38);
   backdrop-filter: blur(18px);
+  pointer-events: none;
   transition:
     transform 180ms ease,
     border-color 180ms ease,
@@ -171,7 +164,7 @@
 }
 
 .menuCardActive {
-  transform: translateX(-6px);
+  transform: translateY(-4px) scale(1.01);
   border-color: rgba(255, 212, 138, 0.62);
   background: rgba(20, 16, 10, 0.88);
 }
@@ -342,24 +335,12 @@
   font-size: 0.76rem;
 }
 
-@media (max-width: 1100px) {
-  .menuPanel {
-    width: min(280px, 30vw);
-  }
-}
-
 @media (max-width: 900px) {
   .menuTrigger {
     top: 20px;
     right: 18px;
     width: 56px;
     height: 56px;
-  }
-
-  .menuPanel {
-    left: auto !important;
-    right: 18px;
-    width: min(280px, calc(100vw - 36px));
   }
 
   .previewDock {
