@@ -31,7 +31,10 @@ type VisionModule = {
       detectForVideo: (
         video: HTMLVideoElement,
         now: number,
-      ) => { landmarks: Array<Array<Landmark>> };
+      ) => {
+        landmarks: Array<Array<Landmark>>;
+        handedness?: Array<Array<{ categoryName: string }>>;
+      };
     }>;
   };
 };
@@ -106,8 +109,26 @@ function getHandScale(points: Landmark[]) {
   return distance(points[5], points[17]) || 1;
 }
 
-function getPrimaryHand(hands: Landmark[][]) {
+function getLargestHand(hands: Landmark[][]) {
   return [...hands].sort((left, right) => getHandScale(right) - getHandScale(left))[0];
+}
+
+function splitHandsBySide(
+  hands: Landmark[][],
+  handedness: Array<Array<{ categoryName: string }>> | undefined,
+) {
+  const pairs = hands.map((hand, index) => ({
+    hand,
+    side: handedness?.[index]?.[0]?.categoryName?.toLowerCase() ?? "",
+  }));
+
+  const rightHand = pairs.find((pair) => pair.side === "right")?.hand;
+  const leftHand = pairs.find((pair) => pair.side === "left")?.hand;
+
+  return {
+    rightHand: rightHand ?? getLargestHand(hands),
+    leftHand: leftHand ?? (hands.length > 1 ? hands.find((hand) => hand !== rightHand) : undefined),
+  };
 }
 
 function getGripPoint(points: Landmark[]) {
@@ -214,8 +235,9 @@ function drawFingertipPreview(
   canvas: HTMLCanvasElement | null,
   video: HTMLVideoElement | null,
   hands: Landmark[][],
-  primaryHand: Landmark[] | undefined,
-  clustered: boolean,
+  pointerHand: Landmark[] | undefined,
+  actionHand: Landmark[] | undefined,
+  actionArmed: boolean,
 ) {
   if (!canvas || !video || !video.videoWidth || !video.videoHeight) {
     return;
@@ -241,24 +263,36 @@ function drawFingertipPreview(
 
       context.beginPath();
       context.fillStyle = FINGERTIP_COLORS[tipOrder];
-      context.arc(x, y, hand === primaryHand && tipIndex === 8 ? 12 : 8, 0, Math.PI * 2);
+      context.arc(
+        x,
+        y,
+        hand === pointerHand && tipIndex === 8 ? 12 : hand === actionHand && tipIndex === 8 ? 10 : 8,
+        0,
+        Math.PI * 2,
+      );
       context.fill();
 
       context.beginPath();
       context.lineWidth = handIndex === 0 ? 2.5 : 1.5;
       context.strokeStyle = "rgba(0, 0, 0, 0.65)";
-      context.arc(x, y, hand === primaryHand && tipIndex === 8 ? 14 : 10, 0, Math.PI * 2);
+      context.arc(
+        x,
+        y,
+        hand === pointerHand && tipIndex === 8 ? 14 : hand === actionHand && tipIndex === 8 ? 12 : 10,
+        0,
+        Math.PI * 2,
+      );
       context.stroke();
     });
   });
 
-  if (primaryHand) {
-    const grip = getGripPoint(primaryHand);
+  if (actionHand) {
+    const grip = getGripPoint(actionHand);
     context.beginPath();
-    context.moveTo(primaryHand[8].x * canvas.width, primaryHand[8].y * canvas.height);
+    context.moveTo(actionHand[8].x * canvas.width, actionHand[8].y * canvas.height);
     context.lineTo(grip.x * canvas.width, grip.y * canvas.height);
     context.lineWidth = 4;
-    context.strokeStyle = clustered
+    context.strokeStyle = actionArmed
       ? "rgba(247, 198, 106, 0.92)"
       : "rgba(255, 255, 255, 0.4)";
     context.stroke();
@@ -379,7 +413,10 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
       detectForVideo: (
         video: HTMLVideoElement,
         now: number,
-      ) => { landmarks: Array<Array<Landmark>> };
+      ) => {
+        landmarks: Array<Array<Landmark>>;
+        handedness?: Array<Array<{ categoryName: string }>>;
+      };
     } | null = null;
     let mounted = true;
 
@@ -442,10 +479,12 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
 
         const result = handLandmarker.detectForVideo(videoRef.current, performance.now());
         const hands = result.landmarks;
-        const hand = getPrimaryHand(hands);
+        const { rightHand, leftHand } = splitHandsBySide(hands, result.handedness);
+        const pointerHand = rightHand ?? getLargestHand(hands);
+        const actionHand = leftHand;
 
-        if (!hand) {
-          drawFingertipPreview(previewCanvasRef.current, videoRef.current, [], undefined, false);
+        if (!pointerHand) {
+          drawFingertipPreview(previewCanvasRef.current, videoRef.current, [], undefined, undefined, false);
           armedActionRef.current = null;
           grabAnchorRef.current = null;
           swipeTrailRef.current = [];
@@ -458,7 +497,7 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
           return;
         }
 
-        const targetPointer = mapPointer(hand[8], viewport);
+        const targetPointer = mapPointer(pointerHand[8], viewport);
         if (!hasPointerRef.current) {
           pointerRef.current = targetPointer;
           hasPointerRef.current = true;
@@ -475,9 +514,17 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
           dispatchRobotPointer(nextPointer.x, nextPointer.y);
         }
 
-        const open = isOpenPalm(hand);
-        const clustered = isHandClustered(hand);
-        drawFingertipPreview(previewCanvasRef.current, videoRef.current, hands, hand, clustered);
+        const leftOpen = actionHand ? isOpenPalm(actionHand) : false;
+        const leftClustered = actionHand ? isHandClustered(actionHand) : false;
+        const rightClustered = pointerHand ? isHandClustered(pointerHand) : false;
+        drawFingertipPreview(
+          previewCanvasRef.current,
+          videoRef.current,
+          hands,
+          pointerHand,
+          actionHand,
+          leftClustered,
+        );
 
         const hoveredAction =
           document
@@ -485,12 +532,12 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
             ?.closest("[data-action-id]")
             ?.getAttribute("data-action-id") ?? null;
 
-        if (clustered && hoveredAction) {
+        if (leftClustered && hoveredAction) {
           armedActionRef.current = hoveredAction;
         }
 
-        if (modeRef.current === "menu" && clustered) {
-          const gripPoint = getGripPoint(hand);
+        if (modeRef.current === "menu" && rightClustered) {
+          const gripPoint = getGripPoint(pointerHand);
           if (grabAnchorRef.current) {
             const deltaX = gripPoint.x - grabAnchorRef.current.x;
             const deltaY = gripPoint.y - grabAnchorRef.current.y;
@@ -519,16 +566,16 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
           return;
         }
 
-        const gesture: Gesture = clustered
-          ? modeRef.current === "menu"
+        const gesture: Gesture = leftClustered
+          ? "clenched"
+          : rightClustered && modeRef.current === "menu"
             ? "grab"
-            : "clenched"
-          : open
-            ? "open"
+            : leftOpen
+              ? "open"
             : "neutral";
 
         if (
-          (previousGestureRef.current === "clenched" || previousGestureRef.current === "grab") &&
+          previousGestureRef.current === "clenched" &&
           gesture === "open" &&
           armedActionRef.current &&
           hoveredAction === armedActionRef.current
@@ -537,7 +584,7 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
           armedActionRef.current = null;
         }
 
-        if (!clustered && gesture !== "open") {
+        if (!leftClustered && gesture !== "open") {
           armedActionRef.current = null;
         }
 
