@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { WorkGestureBack } from "../../components/WorkGestureBack";
 import styles from "../../page.module.css";
 import { works } from "../../work-data";
 
@@ -21,6 +22,7 @@ export default async function WorkPage({
 
   return (
     <main className={styles.workShell}>
+      <WorkGestureBack />
       <article className={styles.workCard}>
         <Link href="/" className={styles.backLink}>
           Back to dock

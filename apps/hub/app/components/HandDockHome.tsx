@@ -1,16 +1,21 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import type { ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "../page.module.css";
 import { works } from "../work-data";
-import { SceneCanvas } from "./SceneCanvas";
 
 type Landmark = { x: number; y: number };
+type Mode = "landing" | "menu";
+type Gesture = "open" | "clenched" | "grab" | "neutral" | "searching";
+type TrailPoint = { x: number; y: number; time: number };
+type Rotation = { x: number; y: number };
+type Viewport = { width: number; height: number };
 
 type TrackingState = {
-  gesture: "open" | "pinch" | "neutral" | "searching";
-  hoveredSlug: string | null;
+  gesture: Gesture;
+  hoveredAction: string | null;
 };
 
 type VisionModule = {
@@ -31,18 +36,70 @@ type VisionModule = {
   };
 };
 
-const HOLD_MS = 280;
-const DOCK_VISIBILITY_MS = 2200;
-const POINTER_SMOOTHING = 0.34;
-const PINCH_THRESHOLD = 0.42;
+type HandDockHomeProps = {
+  brainScene: ReactNode;
+  robotScene: ReactNode;
+};
+
+type MenuNode = {
+  slug: string;
+  name: string;
+  description: string;
+  status: string;
+  stack: string[];
+  actionId: string;
+  x: number;
+  y: number;
+  size: number;
+  depth: number;
+  visible: boolean;
+  cardY: number;
+};
+
+const MENU_BUTTON_ID = "menu-button";
+const SWIPE_WINDOW_MS = 220;
+const POINTER_SMOOTHING = 0.3;
+const CURSOR_GAIN_X = 1.75;
+const CURSOR_GAIN_Y = 1.55;
+const CLUSTER_THRESHOLD = 0.48;
 const FINGERTIP_INDICES = [4, 8, 12, 16, 20] as const;
 const FINGERTIP_COLORS = ["#f7c66a", "#8af4dd", "#f4f7fb", "#f39bd8", "#78b9ff"];
+const MENU_POINTS = [
+  { x: -0.95, y: -0.22, z: 0.38 },
+  { x: 0.68, y: -0.35, z: 0.82 },
+  { x: 0.22, y: 0.9, z: -0.18 },
+  { x: -0.36, y: 0.62, z: 0.56 },
+  { x: 0.94, y: 0.16, z: 0.08 },
+] as const;
 const loadVisionModule = new Function("moduleUrl", "return import(moduleUrl)") as (
   moduleUrl: string,
 ) => Promise<VisionModule>;
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function clamp01(value: number) {
+  return clamp(value, 0, 1);
+}
+
 function distance(a: Landmark, b: Landmark) {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function averagePoint(points: Landmark[]) {
+  const total = points.reduce(
+    (accumulator, point) => ({
+      x: accumulator.x + point.x,
+      y: accumulator.y + point.y,
+    }),
+    { x: 0, y: 0 },
+  );
+
+  return {
+    x: total.x / points.length,
+    y: total.y / points.length,
+  };
 }
 
 function getHandScale(points: Landmark[]) {
@@ -51,6 +108,10 @@ function getHandScale(points: Landmark[]) {
 
 function getPrimaryHand(hands: Landmark[][]) {
   return [...hands].sort((left, right) => getHandScale(right) - getHandScale(left))[0];
+}
+
+function getGripPoint(points: Landmark[]) {
+  return averagePoint(FINGERTIP_INDICES.map((index) => points[index]));
 }
 
 function isFingerExtended(points: Landmark[], tipIndex: number, pipIndex: number) {
@@ -73,10 +134,80 @@ function isOpenPalm(points: Landmark[]) {
   return extendedCount >= 3 && spread > 1.35 && indexLift > 0.7 && middleLift > 0.7;
 }
 
-function isPinching(points: Landmark[]) {
+function isHandClustered(points: Landmark[]) {
   const scale = getHandScale(points);
-  const pinchDistance = distance(points[4], points[8]) / scale;
-  return pinchDistance < PINCH_THRESHOLD;
+  const centroid = getGripPoint(points);
+  const spread =
+    FINGERTIP_INDICES.reduce((sum, index) => sum + distance(points[index], centroid), 0) /
+    (FINGERTIP_INDICES.length * scale);
+
+  return spread < CLUSTER_THRESHOLD;
+}
+
+function mapPointer(point: Landmark, viewport: Viewport) {
+  const normalizedX = clamp01(((1 - point.x) - 0.5) * CURSOR_GAIN_X + 0.5);
+  const normalizedY = clamp01((point.y - 0.5) * CURSOR_GAIN_Y + 0.5);
+
+  return {
+    x: normalizedX * viewport.width,
+    y: normalizedY * viewport.height,
+  };
+}
+
+function rotatePoint(
+  point: { x: number; y: number; z: number },
+  rotation: Rotation,
+) {
+  const cosY = Math.cos(rotation.y);
+  const sinY = Math.sin(rotation.y);
+  const cosX = Math.cos(rotation.x);
+  const sinX = Math.sin(rotation.x);
+
+  const xzX = point.x * cosY - point.z * sinY;
+  const xzZ = point.x * sinY + point.z * cosY;
+
+  return {
+    x: xzX,
+    y: point.y * cosX - xzZ * sinX,
+    z: point.y * sinX + xzZ * cosX,
+  };
+}
+
+function buildMenuNodes(viewport: Viewport, rotation: Rotation) {
+  const centerX = viewport.width * 0.38;
+  const centerY = viewport.height * 0.5;
+  const radius = Math.min(viewport.width, viewport.height) * 0.23;
+  const panelTop = 110;
+
+  const nodes = works.map((work, index) => {
+    const rotated = rotatePoint(MENU_POINTS[index % MENU_POINTS.length], rotation);
+    const depth = (rotated.z + 1) / 2;
+
+    return {
+      ...work,
+      actionId: `project:${work.slug}`,
+      x: centerX + rotated.x * radius,
+      y: centerY + rotated.y * radius * 0.72,
+      size: 26 + depth * 26,
+      depth,
+      visible: depth > 0.08,
+      cardY: panelTop,
+    };
+  });
+
+  const visibleNodes = nodes
+    .filter((node) => node.visible)
+    .sort((left, right) => left.y - right.y)
+    .map((node, index) => ({
+      ...node,
+      cardY: panelTop + index * 132,
+    }));
+
+  return {
+    nodes,
+    visibleNodes,
+    panelLeft: Math.max(viewport.width * 0.7, viewport.width - 360),
+  };
 }
 
 function drawFingertipPreview(
@@ -84,13 +215,9 @@ function drawFingertipPreview(
   video: HTMLVideoElement | null,
   hands: Landmark[][],
   primaryHand: Landmark[] | undefined,
-  pinching: boolean,
+  clustered: boolean,
 ) {
-  if (!canvas || !video) {
-    return;
-  }
-
-  if (!video.videoWidth || !video.videoHeight) {
+  if (!canvas || !video || !video.videoWidth || !video.videoHeight) {
     return;
   }
 
@@ -126,34 +253,124 @@ function drawFingertipPreview(
   });
 
   if (primaryHand) {
+    const grip = getGripPoint(primaryHand);
     context.beginPath();
-    context.moveTo(primaryHand[4].x * canvas.width, primaryHand[4].y * canvas.height);
-    context.lineTo(primaryHand[8].x * canvas.width, primaryHand[8].y * canvas.height);
+    context.moveTo(primaryHand[8].x * canvas.width, primaryHand[8].y * canvas.height);
+    context.lineTo(grip.x * canvas.width, grip.y * canvas.height);
     context.lineWidth = 4;
-    context.strokeStyle = pinching ? "rgba(247, 198, 106, 0.92)" : "rgba(255, 255, 255, 0.45)";
+    context.strokeStyle = clustered
+      ? "rgba(247, 198, 106, 0.92)"
+      : "rgba(255, 255, 255, 0.4)";
     context.stroke();
   }
 }
 
-export function HandDockHome() {
+function detectBackSwipe(trail: TrailPoint[], viewport: Viewport) {
+  if (trail.length < 3) {
+    return false;
+  }
+
+  const start = trail[0];
+  const end = trail[trail.length - 1];
+  const duration = end.time - start.time;
+
+  return (
+    duration <= SWIPE_WINDOW_MS &&
+    start.y < viewport.height * 0.22 &&
+    end.y > viewport.height * 0.72 &&
+    start.x > viewport.width * 0.56 &&
+    end.x < viewport.width * 0.5
+  );
+}
+
+export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
+  const router = useRouter();
+  const [mode, setMode] = useState<Mode>("landing");
   const [state, setState] = useState<TrackingState>({
     gesture: "searching",
-    hoveredSlug: null,
+    hoveredAction: null,
   });
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
-  const [dockVisible, setDockVisible] = useState(false);
-  const dockVisibleRef = useRef(false);
+  const [rotation, setRotation] = useState<Rotation>({ x: -0.16, y: 0.22 });
+  const [viewport, setViewport] = useState<Viewport>({ width: 1280, height: 720 });
   const pointerRef = useRef({ x: 0, y: 0 });
-  const holdRef = useRef<{ slug: string | null; startedAt: number }>({
-    slug: null,
-    startedAt: 0,
-  });
-  const activatedRef = useRef<string | null>(null);
-  const frameRef = useRef<number | null>(null);
-  const dockTimerRef = useRef<number | null>(null);
+  const hasPointerRef = useRef(false);
+  const robotSceneRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const hasPointerRef = useRef(false);
+  const frameRef = useRef<number | null>(null);
+  const armedActionRef = useRef<string | null>(null);
+  const previousGestureRef = useRef<Gesture>("searching");
+  const grabAnchorRef = useRef<Landmark | null>(null);
+  const swipeTrailRef = useRef<TrailPoint[]>([]);
+  const modeRef = useRef<Mode>("landing");
+
+  const menuLayout = useMemo(() => buildMenuNodes(viewport, rotation), [viewport, rotation]);
+
+  function openMenu() {
+    modeRef.current = "menu";
+    setMode("menu");
+    armedActionRef.current = null;
+    grabAnchorRef.current = null;
+    swipeTrailRef.current = [];
+  }
+
+  function closeMenu() {
+    modeRef.current = "landing";
+    setMode("landing");
+    armedActionRef.current = null;
+    grabAnchorRef.current = null;
+    swipeTrailRef.current = [];
+  }
+
+  function activateAction(actionId: string) {
+    if (actionId === MENU_BUTTON_ID) {
+      openMenu();
+      return;
+    }
+
+    if (actionId.startsWith("project:")) {
+      const slug = actionId.replace("project:", "");
+      router.push(`/works/${slug}`);
+    }
+  }
+
+  function dispatchRobotPointer(x: number, y: number) {
+    const canvas = robotSceneRef.current?.querySelector("canvas");
+    if (!canvas) {
+      return;
+    }
+
+    const eventOptions = {
+      clientX: x,
+      clientY: y,
+      bubbles: true,
+    };
+
+    canvas.dispatchEvent(
+      new PointerEvent("pointermove", {
+        ...eventOptions,
+        pointerType: "mouse",
+      }),
+    );
+    canvas.dispatchEvent(new MouseEvent("mousemove", eventOptions));
+  }
+
+  useEffect(() => {
+    const updateViewport = () => {
+      setViewport({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
+
+    return () => {
+      window.removeEventListener("resize", updateViewport);
+    };
+  }, []);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -166,18 +383,6 @@ export function HandDockHome() {
     } | null = null;
     let mounted = true;
 
-    function revealDock() {
-      dockVisibleRef.current = true;
-      setDockVisible(true);
-      if (dockTimerRef.current) {
-        window.clearTimeout(dockTimerRef.current);
-      }
-      dockTimerRef.current = window.setTimeout(() => {
-        dockVisibleRef.current = false;
-        setDockVisible(false);
-      }, DOCK_VISIBILITY_MS);
-    }
-
     async function setup() {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -189,12 +394,6 @@ export function HandDockHome() {
           audio: false,
         });
       } catch {
-        if (mounted) {
-          setState((current) => ({
-            ...current,
-            gesture: "searching",
-          }));
-        }
         return;
       }
 
@@ -247,86 +446,106 @@ export function HandDockHome() {
 
         if (!hand) {
           drawFingertipPreview(previewCanvasRef.current, videoRef.current, [], undefined, false);
-          holdRef.current = { slug: null, startedAt: 0 };
-          activatedRef.current = null;
-          setState((current) => ({
-            ...current,
+          armedActionRef.current = null;
+          grabAnchorRef.current = null;
+          swipeTrailRef.current = [];
+          previousGestureRef.current = "searching";
+          setState({
             gesture: "searching",
-            hoveredSlug: null,
-          }));
+            hoveredAction: null,
+          });
           frameRef.current = requestAnimationFrame(loop);
           return;
         }
 
-        const cursor = hand[8];
-        const targetX = (1 - cursor.x) * window.innerWidth;
-        const targetY = cursor.y * window.innerHeight;
+        const targetPointer = mapPointer(hand[8], viewport);
         if (!hasPointerRef.current) {
-          pointerRef.current = { x: targetX, y: targetY };
+          pointerRef.current = targetPointer;
           hasPointerRef.current = true;
         }
+
         const nextPointer = {
-          x: pointerRef.current.x + (targetX - pointerRef.current.x) * POINTER_SMOOTHING,
-          y: pointerRef.current.y + (targetY - pointerRef.current.y) * POINTER_SMOOTHING,
+          x: pointerRef.current.x + (targetPointer.x - pointerRef.current.x) * POINTER_SMOOTHING,
+          y: pointerRef.current.y + (targetPointer.y - pointerRef.current.y) * POINTER_SMOOTHING,
         };
         pointerRef.current = nextPointer;
         setPointer(nextPointer);
 
-        window.dispatchEvent(
-          new MouseEvent("mousemove", {
-            clientX: nextPointer.x,
-            clientY: nextPointer.y,
-            bubbles: true,
-          }),
-        );
-        document.dispatchEvent(
-          new PointerEvent("pointermove", {
-            clientX: nextPointer.x,
-            clientY: nextPointer.y,
-            bubbles: true,
-            pointerType: "mouse",
-          }),
-        );
-
-        const palmOpen = isOpenPalm(hand);
-        const pinching = isPinching(hand);
-        drawFingertipPreview(previewCanvasRef.current, videoRef.current, hands, hand, pinching);
-        if (palmOpen) {
-          revealDock();
+        if (modeRef.current === "landing") {
+          dispatchRobotPointer(nextPointer.x, nextPointer.y);
         }
 
-        const hovered = document
-          .elementFromPoint(nextPointer.x, nextPointer.y)
-          ?.closest("[data-work-slug]");
-        const hoveredSlug = dockVisibleRef.current
-          ? hovered?.getAttribute("data-work-slug") ?? null
-          : null;
+        const open = isOpenPalm(hand);
+        const clustered = isHandClustered(hand);
+        drawFingertipPreview(previewCanvasRef.current, videoRef.current, hands, hand, clustered);
 
-        if (pinching && hoveredSlug) {
-          if (holdRef.current.slug !== hoveredSlug) {
-            holdRef.current = { slug: hoveredSlug, startedAt: performance.now() };
-            activatedRef.current = null;
-          }
+        const hoveredAction =
+          document
+            .elementFromPoint(nextPointer.x, nextPointer.y)
+            ?.closest("[data-action-id]")
+            ?.getAttribute("data-action-id") ?? null;
 
-          if (
-            performance.now() - holdRef.current.startedAt >= HOLD_MS &&
-            activatedRef.current !== hoveredSlug
-          ) {
-            activatedRef.current = hoveredSlug;
-            (hovered as HTMLElement).click();
+        if (clustered && hoveredAction) {
+          armedActionRef.current = hoveredAction;
+        }
+
+        if (modeRef.current === "menu" && clustered) {
+          const gripPoint = getGripPoint(hand);
+          if (grabAnchorRef.current) {
+            const deltaX = gripPoint.x - grabAnchorRef.current.x;
+            const deltaY = gripPoint.y - grabAnchorRef.current.y;
+            setRotation((current) => ({
+              x: clamp(current.x + deltaY * 3.8, -0.75, 0.75),
+              y: current.y + deltaX * 5.8,
+            }));
           }
+          grabAnchorRef.current = gripPoint;
         } else {
-          holdRef.current = { slug: hoveredSlug, startedAt: performance.now() };
-          if (!pinching) {
-            activatedRef.current = null;
-          }
+          grabAnchorRef.current = null;
         }
 
-        setState((current) => ({
-          ...current,
-          gesture: pinching ? "pinch" : palmOpen ? "open" : "neutral",
-          hoveredSlug,
-        }));
+        swipeTrailRef.current = [
+          ...swipeTrailRef.current.filter((item) => performance.now() - item.time < SWIPE_WINDOW_MS),
+          { x: nextPointer.x, y: nextPointer.y, time: performance.now() },
+        ];
+
+        if (modeRef.current === "menu" && detectBackSwipe(swipeTrailRef.current, viewport)) {
+          closeMenu();
+          setState({
+            gesture: "neutral",
+            hoveredAction: null,
+          });
+          frameRef.current = requestAnimationFrame(loop);
+          return;
+        }
+
+        const gesture: Gesture = clustered
+          ? modeRef.current === "menu"
+            ? "grab"
+            : "clenched"
+          : open
+            ? "open"
+            : "neutral";
+
+        if (
+          (previousGestureRef.current === "clenched" || previousGestureRef.current === "grab") &&
+          gesture === "open" &&
+          armedActionRef.current &&
+          hoveredAction === armedActionRef.current
+        ) {
+          activateAction(armedActionRef.current);
+          armedActionRef.current = null;
+        }
+
+        if (!clustered && gesture !== "open") {
+          armedActionRef.current = null;
+        }
+
+        previousGestureRef.current = gesture;
+        setState({
+          gesture,
+          hoveredAction,
+        });
 
         frameRef.current = requestAnimationFrame(loop);
       };
@@ -341,51 +560,108 @@ export function HandDockHome() {
       if (frameRef.current) {
         cancelAnimationFrame(frameRef.current);
       }
-      if (dockTimerRef.current) {
-        window.clearTimeout(dockTimerRef.current);
-      }
-      if (handLandmarker) {
-        handLandmarker.close();
-      }
+      handLandmarker?.close();
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
       }
     };
-  }, []);
+  }, [router, viewport]);
 
   return (
     <main className={styles.shell}>
-      <SceneCanvas />
-      <div className={styles.blackVignette} />
-
-      <aside className={`${styles.dockRail} ${dockVisible ? styles.dockRailVisible : ""}`}>
-        <div className={styles.linkList}>
-          {works.map((work) => {
-            const active = state.hoveredSlug === work.slug;
-
-            return (
-              <Link
-                key={work.slug}
-                href={`/works/${work.slug}`}
-                data-work-slug={work.slug}
-                data-work-name={work.name}
-                className={`${styles.linkCard} ${active ? styles.linkCardActive : ""}`}
-              >
-                <div className={styles.linkTop}>
-                  <h2 className={styles.linkName}>{work.name}</h2>
-                  <span className={styles.linkTag}>{work.status}</span>
-                </div>
-                <p className={styles.linkDescription}>{work.description}</p>
-              </Link>
-            );
-          })}
-        </div>
-      </aside>
+      <div
+        ref={robotSceneRef}
+        className={`${styles.sceneLayer} ${mode === "landing" ? styles.sceneLayerActive : ""}`}
+        aria-hidden={mode !== "landing"}
+      >
+        {robotScene}
+      </div>
 
       <div
-        className={`${styles.reticle} ${state.gesture === "pinch" ? styles.reticlePinch : ""} ${
-          dockVisible ? styles.reticleVisible : ""
-        }`}
+        className={`${styles.sceneLayer} ${mode === "menu" ? styles.sceneLayerActive : ""}`}
+        aria-hidden={mode !== "menu"}
+      >
+        {brainScene}
+      </div>
+
+      <div className={styles.blackVignette} />
+
+      {mode === "landing" ? (
+        <button
+          type="button"
+          aria-label="Open project menu"
+          data-action-id={MENU_BUTTON_ID}
+          className={`${styles.menuTrigger} ${
+            state.hoveredAction === MENU_BUTTON_ID ? styles.menuTriggerActive : ""
+          }`}
+        />
+      ) : null}
+
+      {mode === "menu" ? (
+        <section className={styles.menuOverlay}>
+          <svg className={styles.menuLines} aria-hidden="true">
+            {menuLayout.visibleNodes.map((node) => (
+              <line
+                key={node.slug}
+                x1={node.x}
+                y1={node.y}
+                x2={menuLayout.panelLeft}
+                y2={node.cardY + 42}
+                className={styles.menuConnector}
+              />
+            ))}
+          </svg>
+
+          {menuLayout.nodes.map((node) =>
+            node.visible ? (
+              <button
+                key={node.slug}
+                type="button"
+                aria-label={node.name}
+                data-action-id={node.actionId}
+                className={`${styles.projectOrb} ${
+                  state.hoveredAction === node.actionId ? styles.projectOrbActive : ""
+                }`}
+                style={{
+                  left: node.x,
+                  top: node.y,
+                  width: node.size,
+                  height: node.size,
+                  zIndex: 20 + Math.round(node.depth * 10),
+                }}
+              />
+            ) : null,
+          )}
+
+          <div className={styles.menuPanel} style={{ left: menuLayout.panelLeft }}>
+            {menuLayout.visibleNodes.map((node) => (
+              <article
+                key={node.slug}
+                className={`${styles.menuCard} ${
+                  state.hoveredAction === node.actionId ? styles.menuCardActive : ""
+                }`}
+                style={{ top: node.cardY }}
+              >
+                <p className={styles.menuCardStatus}>{node.status}</p>
+                <h2 className={styles.menuCardTitle}>{node.name}</h2>
+                <p className={styles.menuCardCopy}>{node.description}</p>
+                <div className={styles.menuCardMeta}>
+                  {node.stack.map((item) => (
+                    <span key={item} className={styles.menuMetaPill}>
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <div
+        className={`${styles.reticle} ${
+          state.gesture === "clenched" || state.gesture === "grab" ? styles.reticleArmed : ""
+        } ${state.gesture !== "searching" ? styles.reticleVisible : ""}`}
         style={{ transform: `translate3d(${pointer.x}px, ${pointer.y}px, 0)` }}
       >
         <div className={styles.reticleCore} />
