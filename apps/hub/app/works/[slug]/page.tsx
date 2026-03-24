@@ -30,6 +30,20 @@ export default async function WorkPage({
         <p className={styles.eyebrow}>{work.status}</p>
         <h1 className={styles.panelTitle}>{work.name}</h1>
         <p className={styles.panelCopy}>{work.description}</p>
+        <div className={styles.workMetaGrid}>
+          <div className={styles.workMetaBlock}>
+            <span className={styles.workMetaLabel}>Year</span>
+            <span className={styles.workMetaValue}>{work.year}</span>
+          </div>
+          <div className={styles.workMetaBlock}>
+            <span className={styles.workMetaLabel}>Mode</span>
+            <span className={styles.workMetaValue}>{work.interactionType}</span>
+          </div>
+          <div className={styles.workMetaBlock}>
+            <span className={styles.workMetaLabel}>Accent</span>
+            <span className={styles.workMetaValue}>{work.accentLabel}</span>
+          </div>
+        </div>
         <div className={styles.linkMeta}>
           {work.stack.map((item) => (
             <span key={item} className={styles.metaPill}>

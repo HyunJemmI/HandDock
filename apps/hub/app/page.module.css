@@ -157,14 +157,18 @@
   box-shadow: 0 20px 70px rgba(0, 0, 0, 0.38);
   backdrop-filter: blur(18px);
   pointer-events: none;
+  opacity: var(--card-opacity, 1);
+  transform: scale(var(--card-scale, 1));
+  transform-origin: center;
   transition:
     transform 180ms ease,
     border-color 180ms ease,
-    background 180ms ease;
+    background 180ms ease,
+    opacity 180ms ease;
 }
 
 .menuCardActive {
-  transform: translateY(-4px) scale(1.01);
+  transform: translateY(-4px) scale(calc(var(--card-scale, 1) * 1.02));
   border-color: rgba(255, 212, 138, 0.62);
   background: rgba(20, 16, 10, 0.88);
 }
@@ -240,6 +244,50 @@
 
 .reticleArmed .reticleCore {
   background: rgba(255, 212, 138, 0.95);
+}
+
+.statusDock {
+  position: fixed;
+  left: 22px;
+  bottom: 22px;
+  z-index: 9;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(7, 7, 7, 0.68);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(16px);
+}
+
+.statusDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  box-shadow: 0 0 18px currentColor;
+}
+
+.statusDotLive {
+  color: rgba(132, 255, 198, 0.95);
+  background: currentColor;
+}
+
+.statusDotWarning {
+  color: rgba(255, 211, 120, 0.95);
+  background: currentColor;
+}
+
+.statusDotBlocked {
+  color: rgba(255, 126, 126, 0.92);
+  background: currentColor;
+}
+
+.statusLabel {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
 }
 
 .previewDock {
@@ -320,6 +368,35 @@
   line-height: 1.7;
 }
 
+.workMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.workMetaBlock {
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.workMetaLabel {
+  display: block;
+  color: rgba(255, 255, 255, 0.46);
+  font-size: 0.74rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.workMetaValue {
+  display: block;
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.96rem;
+}
+
 .linkMeta {
   display: flex;
   gap: 8px;
@@ -347,5 +424,15 @@
     width: 160px;
     right: 14px;
     bottom: 14px;
+  }
+
+  .statusDock {
+    left: 14px;
+    bottom: 14px;
+    padding: 9px 12px;
+  }
+
+  .workMetaGrid {
+    grid-template-columns: 1fr;
   }
 }

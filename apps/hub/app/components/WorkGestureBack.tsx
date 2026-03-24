@@ -2,67 +2,35 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
+import {
+  GLOBAL_MENU_FLAG_KEY,
+  SWIPE_WINDOW_MS,
+  type TrailPoint,
+  type VisionModule,
+  detectBackSwipe,
+  getLargestHand,
+  isHandClustered,
+  isOpenPalm,
+  loadVisionModule,
+  splitHandsBySide,
+} from "./hand-tracking";
 
-type Landmark = { x: number; y: number };
-type TrailPoint = { x: number; y: number; time: number };
-type VisionModule = {
-  FilesetResolver: {
-    forVisionTasks: (path: string) => Promise<unknown>;
-  };
-  HandLandmarker: {
-    createFromOptions: (
-      resolver: unknown,
-      options: Record<string, unknown>,
-    ) => Promise<{
-      close: () => void;
-      detectForVideo: (
-        video: HTMLVideoElement,
-        now: number,
-      ) => { landmarks: Array<Array<Landmark>> };
-    }>;
-  };
-};
-
-const SWIPE_WINDOW_MS = 220;
-const loadVisionModule = new Function("moduleUrl", "return import(moduleUrl)") as (
-  moduleUrl: string,
-) => Promise<VisionModule>;
-
-function detectBackSwipe(trail: TrailPoint[]) {
-  if (trail.length < 3) {
-    return false;
-  }
-
-  const width = window.innerWidth;
-  const height = window.innerHeight;
-  const start = trail[0];
-  const end = trail[trail.length - 1];
-  const duration = end.time - start.time;
-
-  return (
-    duration <= SWIPE_WINDOW_MS &&
-    start.y < height * 0.22 &&
-    end.y > height * 0.72 &&
-    start.x > width * 0.56 &&
-    end.x < width * 0.5
-  );
-}
+type Gesture = "open" | "clenched" | "neutral" | "searching";
+const MENU_ENTRY_COOLDOWN_MS = 520;
 
 export function WorkGestureBack() {
   const router = useRouter();
   const frameRef = useRef<number | null>(null);
   const trailRef = useRef<TrailPoint[]>([]);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const previousGestureRef = useRef<Gesture>("searching");
+  const cooldownUntilRef = useRef(0);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
-    let handLandmarker: {
-      close: () => void;
-      detectForVideo: (
-        video: HTMLVideoElement,
-        now: number,
-      ) => { landmarks: Array<Array<Landmark>> };
-    } | null = null;
+    let handLandmarker: Awaited<
+      ReturnType<VisionModule["HandLandmarker"]["createFromOptions"]>
+    > | null = null;
     let mounted = true;
 
     async function setup() {
@@ -99,7 +67,7 @@ export function WorkGestureBack() {
             delegate: "GPU",
           },
           runningMode: "VIDEO",
-          numHands: 1,
+          numHands: 2,
         });
       } catch {
         handLandmarker = await vision.HandLandmarker.createFromOptions(resolver, {
@@ -107,7 +75,7 @@ export function WorkGestureBack() {
             modelAssetPath: "/vendor/mediapipe/hand_landmarker.task",
           },
           runningMode: "VIDEO",
-          numHands: 1,
+          numHands: 2,
         });
       }
 
@@ -122,27 +90,52 @@ export function WorkGestureBack() {
           return;
         }
 
-        const result = handLandmarker.detectForVideo(videoRef.current, performance.now());
-        const hand = result.landmarks[0];
+        const now = performance.now();
+        const result = handLandmarker.detectForVideo(videoRef.current, now);
+        const hands = result.landmarks;
+        const { rightHand, leftHand } = splitHandsBySide(hands, result.handedness);
+        const pointerHand = rightHand ?? getLargestHand(hands);
+        const actionHand = leftHand;
 
-        if (!hand) {
+        if (!pointerHand) {
           trailRef.current = [];
+          previousGestureRef.current = "searching";
           frameRef.current = requestAnimationFrame(loop);
           return;
         }
 
-        const x = (1 - hand[8].x) * window.innerWidth;
-        const y = hand[8].y * window.innerHeight;
+        const x = (1 - pointerHand[8].x) * window.innerWidth;
+        const y = pointerHand[8].y * window.innerHeight;
         trailRef.current = [
-          ...trailRef.current.filter((item) => performance.now() - item.time < SWIPE_WINDOW_MS),
-          { x, y, time: performance.now() },
+          ...trailRef.current.filter((item) => now - item.time < SWIPE_WINDOW_MS),
+          { x, y, time: now },
         ];
 
-        if (detectBackSwipe(trailRef.current)) {
+        if (detectBackSwipe(trailRef.current, { width: window.innerWidth, height: window.innerHeight })) {
           router.push("/");
           return;
         }
 
+        const nextGesture: Gesture = actionHand
+          ? isHandClustered(actionHand)
+            ? "clenched"
+            : isOpenPalm(actionHand)
+              ? "open"
+              : "neutral"
+          : "searching";
+
+        if (
+          previousGestureRef.current === "clenched" &&
+          nextGesture === "open" &&
+          now >= cooldownUntilRef.current
+        ) {
+          cooldownUntilRef.current = now + MENU_ENTRY_COOLDOWN_MS;
+          sessionStorage.setItem(GLOBAL_MENU_FLAG_KEY, "1");
+          router.push("/");
+          return;
+        }
+
+        previousGestureRef.current = nextGesture;
         frameRef.current = requestAnimationFrame(loop);
       };
 
@@ -163,5 +156,13 @@ export function WorkGestureBack() {
     };
   }, [router]);
 
-  return <video ref={videoRef} style={{ position: "fixed", width: 1, height: 1, opacity: 0 }} autoPlay muted playsInline />;
+  return (
+    <video
+      ref={videoRef}
+      style={{ position: "fixed", width: 1, height: 1, opacity: 0 }}
+      autoPlay
+      muted
+      playsInline
+    />
+  );
 }

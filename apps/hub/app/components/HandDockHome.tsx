@@ -5,38 +5,38 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "../page.module.css";
 import { works } from "../work-data";
+import {
+  FINGERTIP_INDICES,
+  GLOBAL_MENU_FLAG_KEY,
+  SWIPE_WINDOW_MS,
+  type Landmark,
+  type TrailPoint,
+  type Viewport,
+  type VisionModule,
+  clamp,
+  clamp01,
+  detectBackSwipe,
+  getGripPoint,
+  getHandScale,
+  getLargestHand,
+  isHandClustered,
+  isOpenPalm,
+  loadVisionModule,
+  splitHandsBySide,
+} from "./hand-tracking";
 
-type Landmark = { x: number; y: number };
 type Mode = "landing" | "menu";
 type Gesture = "open" | "clenched" | "grab" | "neutral" | "searching";
-type TrailPoint = { x: number; y: number; time: number };
+type Intent = "idle" | "menu-intent" | "selection" | "rotation" | "back-swipe";
 type Rotation = { x: number; y: number };
-type Viewport = { width: number; height: number };
+type SensorState = "tracking" | "searching" | "camera-blocked" | "low-light";
 
 type TrackingState = {
   gesture: Gesture;
   hoveredAction: string | null;
-};
-
-type VisionModule = {
-  FilesetResolver: {
-    forVisionTasks: (path: string) => Promise<unknown>;
-  };
-  HandLandmarker: {
-    createFromOptions: (
-      resolver: unknown,
-      options: Record<string, unknown>,
-    ) => Promise<{
-      close: () => void;
-      detectForVideo: (
-        video: HTMLVideoElement,
-        now: number,
-      ) => {
-        landmarks: Array<Array<Landmark>>;
-        handedness?: Array<Array<{ categoryName: string }>>;
-      };
-    }>;
-  };
+  intent: Intent;
+  sensorState: SensorState;
+  statusLabel: string;
 };
 
 type HandDockHomeProps = {
@@ -50,6 +50,9 @@ type MenuNode = {
   description: string;
   status: string;
   stack: string[];
+  year: string;
+  interactionType: string;
+  accentLabel: string;
   actionId: string;
   x: number;
   y: number;
@@ -61,117 +64,24 @@ type MenuNode = {
   cardY: number;
   cardWidth: number;
   connectorX: number;
+  cardScale: number;
+  cardOpacity: number;
 };
 
 const MENU_BUTTON_ID = "menu-button";
-const SWIPE_WINDOW_MS = 220;
-const POINTER_SMOOTHING = 0.3;
-const CURSOR_GAIN_X = 1.75;
-const CURSOR_GAIN_Y = 1.55;
-const CLUSTER_THRESHOLD = 0.48;
-const FINGERTIP_INDICES = [4, 8, 12, 16, 20] as const;
+const POINTER_SMOOTHING = 0.32;
+const CURSOR_GAIN_X = 1.78;
+const CURSOR_GAIN_Y = 1.58;
+const MENU_ENTRY_COOLDOWN_MS = 520;
+const LOW_LIGHT_THRESHOLD = 44;
 const FINGERTIP_COLORS = ["#f7c66a", "#8af4dd", "#f4f7fb", "#f39bd8", "#78b9ff"];
-const MENU_POINTS = [
-  { x: -0.95, y: -0.22, z: 0.38 },
-  { x: 0.68, y: -0.35, z: 0.82 },
-  { x: 0.22, y: 0.9, z: -0.18 },
-  { x: -0.36, y: 0.62, z: 0.56 },
-  { x: 0.94, y: 0.16, z: 0.08 },
-] as const;
-const loadVisionModule = new Function("moduleUrl", "return import(moduleUrl)") as (
-  moduleUrl: string,
-) => Promise<VisionModule>;
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function clamp01(value: number) {
-  return clamp(value, 0, 1);
-}
-
-function distance(a: Landmark, b: Landmark) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-function averagePoint(points: Landmark[]) {
-  const total = points.reduce(
-    (accumulator, point) => ({
-      x: accumulator.x + point.x,
-      y: accumulator.y + point.y,
-    }),
-    { x: 0, y: 0 },
-  );
-
-  return {
-    x: total.x / points.length,
-    y: total.y / points.length,
-  };
-}
-
-function getHandScale(points: Landmark[]) {
-  return distance(points[5], points[17]) || 1;
-}
-
-function getLargestHand(hands: Landmark[][]) {
-  return [...hands].sort((left, right) => getHandScale(right) - getHandScale(left))[0];
-}
-
-function splitHandsBySide(
-  hands: Landmark[][],
-  handedness: Array<Array<{ categoryName: string }>> | undefined,
-) {
-  const pairs = hands.map((hand, index) => ({
-    hand,
-    side: handedness?.[index]?.[0]?.categoryName?.toLowerCase() ?? "",
-  }));
-
-  const rightHand = pairs.find((pair) => pair.side === "right")?.hand;
-  const leftHand = pairs.find((pair) => pair.side === "left")?.hand;
-
-  return {
-    rightHand: rightHand ?? getLargestHand(hands),
-    leftHand: leftHand ?? (hands.length > 1 ? hands.find((hand) => hand !== rightHand) : undefined),
-  };
-}
-
-function getGripPoint(points: Landmark[]) {
-  return averagePoint(FINGERTIP_INDICES.map((index) => points[index]));
-}
-
-function isFingerExtended(points: Landmark[], tipIndex: number, pipIndex: number) {
-  return points[tipIndex].y < points[pipIndex].y;
-}
-
-function isOpenPalm(points: Landmark[]) {
-  const extendedCount = [
-    isFingerExtended(points, 8, 6),
-    isFingerExtended(points, 12, 10),
-    isFingerExtended(points, 16, 14),
-    isFingerExtended(points, 20, 18),
-  ].filter(Boolean).length;
-
-  const scale = getHandScale(points);
-  const spread = distance(points[8], points[20]) / scale;
-  const indexLift = (points[5].y - points[8].y) / scale;
-  const middleLift = (points[9].y - points[12].y) / scale;
-
-  return extendedCount >= 3 && spread > 1.35 && indexLift > 0.7 && middleLift > 0.7;
-}
-
-function isHandClustered(points: Landmark[]) {
-  const scale = getHandScale(points);
-  const centroid = getGripPoint(points);
-  const spread =
-    FINGERTIP_INDICES.reduce((sum, index) => sum + distance(points[index], centroid), 0) /
-    (FINGERTIP_INDICES.length * scale);
-
-  return spread < CLUSTER_THRESHOLD;
-}
-
-function mapPointer(point: Landmark, viewport: Viewport) {
-  const normalizedX = clamp01(((1 - point.x) - 0.5) * CURSOR_GAIN_X + 0.5);
-  const normalizedY = clamp01((point.y - 0.5) * CURSOR_GAIN_Y + 0.5);
+function mapPointer(point: Landmark, viewport: Viewport, handScale: number) {
+  const sensitivityFactor = clamp(0.18 / handScale, 0.88, 1.35);
+  const gainX = CURSOR_GAIN_X * sensitivityFactor;
+  const gainY = CURSOR_GAIN_Y * sensitivityFactor;
+  const normalizedX = clamp01(((1 - point.x) - 0.5) * gainX + 0.5);
+  const normalizedY = clamp01((point.y - 0.5) * gainY + 0.5);
 
   return {
     x: normalizedX * viewport.width,
@@ -203,22 +113,26 @@ function buildMenuNodes(viewport: Viewport, rotation: Rotation) {
   const centerY = viewport.height * 0.5;
   const radius = Math.min(viewport.width, viewport.height) * 0.24;
   const cardWidth = clamp(viewport.width * 0.2, 200, 280);
-  const cardHeightEstimate = 134;
+  const cardHeightEstimate = 146;
   const cardInset = 28;
-  const cardGap = 28;
+  const cardGap = 30;
 
-  const nodes = works.map((work, index) => {
-    const rotated = rotatePoint(MENU_POINTS[index % MENU_POINTS.length], rotation);
+  const nodes = works.map((work) => {
+    const rotated = rotatePoint(work.sceneAnchor, rotation);
     const depth = (rotated.z + 1) / 2;
     const x = centerX + rotated.x * radius;
     const y = centerY + rotated.y * radius * 0.72;
-    const size = 26 + depth * 26;
+    const size = 24 + depth * 28 + work.priority * 1.5;
     const cardSide = rotated.x >= 0 ? 1 : -1;
+    const depthDrift = (depth - 0.5) * 22;
     const rawCardX =
-      x + cardSide * (size * 0.72 + cardGap) - (cardSide < 0 ? cardWidth : 0);
+      x +
+      cardSide * (size * 0.78 + cardGap + work.cardOffset.x + depthDrift) -
+      (cardSide < 0 ? cardWidth : 0);
     const cardX = clamp(rawCardX, cardInset, viewport.width - cardWidth - cardInset);
+    const rawCardY = y - cardHeightEstimate * 0.42 + work.cardOffset.y - depthDrift * 0.35;
     const cardY = clamp(
-      y - cardHeightEstimate * 0.42,
+      rawCardY,
       cardInset,
       viewport.height - cardHeightEstimate - cardInset,
     );
@@ -236,6 +150,8 @@ function buildMenuNodes(viewport: Viewport, rotation: Rotation) {
       cardY,
       cardWidth,
       connectorX: cardSide > 0 ? cardX : cardX + cardWidth,
+      cardScale: 0.92 + depth * 0.12,
+      cardOpacity: 0.5 + depth * 0.5,
     };
   });
 
@@ -248,7 +164,7 @@ function buildMenuNodes(viewport: Viewport, rotation: Rotation) {
     for (let index = 1; index < sideNodes.length; index += 1) {
       const previous = sideNodes[index - 1];
       const current = sideNodes[index];
-      const minimumY = previous.cardY + cardHeightEstimate - 18;
+      const minimumY = previous.cardY + cardHeightEstimate - 24;
 
       if (current.cardY < minimumY) {
         current.cardY = minimumY;
@@ -280,6 +196,29 @@ function buildMenuNodes(viewport: Viewport, rotation: Rotation) {
   });
 
   return { nodes, visibleNodes };
+}
+
+function estimateBrightness(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
+  if (!video.videoWidth || !video.videoHeight) {
+    return 255;
+  }
+
+  canvas.width = 24;
+  canvas.height = 18;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    return 255;
+  }
+
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+  let luminance = 0;
+
+  for (let index = 0; index < data.length; index += 4) {
+    luminance += data[index] * 0.2126 + data[index + 1] * 0.7152 + data[index + 2] * 0.0722;
+  }
+
+  return luminance / (data.length / 4);
 }
 
 function drawFingertipPreview(
@@ -350,24 +289,6 @@ function drawFingertipPreview(
   }
 }
 
-function detectBackSwipe(trail: TrailPoint[], viewport: Viewport) {
-  if (trail.length < 3) {
-    return false;
-  }
-
-  const start = trail[0];
-  const end = trail[trail.length - 1];
-  const duration = end.time - start.time;
-
-  return (
-    duration <= SWIPE_WINDOW_MS &&
-    start.y < viewport.height * 0.22 &&
-    end.y > viewport.height * 0.72 &&
-    start.x > viewport.width * 0.56 &&
-    end.x < viewport.width * 0.5
-  );
-}
-
 function dispatchScenePointer(
   sceneRoot: HTMLDivElement | null,
   phase: "move" | "down" | "up",
@@ -382,7 +303,7 @@ function dispatchScenePointer(
   const pointerType =
     phase === "down" ? "pointerdown" : phase === "up" ? "pointerup" : "pointermove";
   const mouseType = phase === "down" ? "mousedown" : phase === "up" ? "mouseup" : "mousemove";
-  const buttons = phase === "up" ? 0 : phase === "down" ? 1 : 1;
+  const buttons = phase === "up" ? 0 : 1;
   const options = {
     clientX: x,
     clientY: y,
@@ -401,12 +322,18 @@ function dispatchScenePointer(
   canvas.dispatchEvent(new MouseEvent(mouseType, options));
 }
 
-export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
+export function HandDockHome({
+  brainScene,
+  robotScene,
+}: HandDockHomeProps) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("landing");
   const [state, setState] = useState<TrackingState>({
     gesture: "searching",
     hoveredAction: null,
+    intent: "idle",
+    sensorState: "searching",
+    statusLabel: "Searching for hand",
   });
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const [rotation, setRotation] = useState<Rotation>({ x: -0.16, y: 0.22 });
@@ -417,6 +344,7 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
   const brainSceneRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lightCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<number | null>(null);
   const armedActionRef = useRef<string | null>(null);
   const previousGestureRef = useRef<Gesture>("searching");
@@ -424,11 +352,30 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
   const brainDragActiveRef = useRef(false);
   const rotationDragMovedRef = useRef(false);
   const swipeTrailRef = useRef<TrailPoint[]>([]);
+  const menuCooldownUntilRef = useRef(0);
+  const brightnessRef = useRef(255);
+  const brightnessSampleFrameRef = useRef(0);
   const modeRef = useRef<Mode>("landing");
 
   const menuLayout = useMemo(() => buildMenuNodes(viewport, rotation), [viewport, rotation]);
 
+  useEffect(() => {
+    if (sessionStorage.getItem(GLOBAL_MENU_FLAG_KEY) !== "1") {
+      return;
+    }
+
+    sessionStorage.removeItem(GLOBAL_MENU_FLAG_KEY);
+    menuCooldownUntilRef.current = performance.now() + MENU_ENTRY_COOLDOWN_MS;
+    modeRef.current = "menu";
+    setMode("menu");
+  }, []);
+
   function openMenu() {
+    if (modeRef.current === "menu") {
+      return;
+    }
+
+    menuCooldownUntilRef.current = performance.now() + MENU_ENTRY_COOLDOWN_MS;
     modeRef.current = "menu";
     setMode("menu");
     armedActionRef.current = null;
@@ -485,16 +432,9 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
 
   useEffect(() => {
     let stream: MediaStream | null = null;
-    let handLandmarker: {
-      close: () => void;
-      detectForVideo: (
-        video: HTMLVideoElement,
-        now: number,
-      ) => {
-        landmarks: Array<Array<Landmark>>;
-        handedness?: Array<Array<{ categoryName: string }>>;
-      };
-    } | null = null;
+    let handLandmarker: Awaited<
+      ReturnType<VisionModule["HandLandmarker"]["createFromOptions"]>
+    > | null = null;
     let mounted = true;
 
     async function setup() {
@@ -508,6 +448,15 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
           audio: false,
         });
       } catch {
+        if (mounted) {
+          setState((current) => ({
+            ...current,
+            gesture: "searching",
+            intent: "idle",
+            sensorState: "camera-blocked",
+            statusLabel: "Camera access blocked",
+          }));
+        }
         return;
       }
 
@@ -520,6 +469,9 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
       videoRef.current.muted = true;
       videoRef.current.playsInline = true;
       await videoRef.current.play().catch(() => undefined);
+      if (!lightCanvasRef.current) {
+        lightCanvasRef.current = document.createElement("canvas");
+      }
 
       const vision = await loadVisionModule("/vendor/mediapipe/vision_bundle.mjs");
       const resolver = await vision.FilesetResolver.forVisionTasks("/vendor/mediapipe");
@@ -554,7 +506,13 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
           return;
         }
 
-        const result = handLandmarker.detectForVideo(videoRef.current, performance.now());
+        brightnessSampleFrameRef.current += 1;
+        if (lightCanvasRef.current && brightnessSampleFrameRef.current % 12 === 0) {
+          brightnessRef.current = estimateBrightness(videoRef.current, lightCanvasRef.current);
+        }
+
+        const now = performance.now();
+        const result = handLandmarker.detectForVideo(videoRef.current, now);
         const hands = result.landmarks;
         const { rightHand, leftHand } = splitHandsBySide(hands, result.handedness);
         const pointerHand = rightHand ?? getLargestHand(hands);
@@ -579,12 +537,16 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
           setState({
             gesture: "searching",
             hoveredAction: null,
+            intent: "idle",
+            sensorState: brightnessRef.current < LOW_LIGHT_THRESHOLD ? "low-light" : "searching",
+            statusLabel:
+              brightnessRef.current < LOW_LIGHT_THRESHOLD ? "Low light" : "Searching for hand",
           });
           frameRef.current = requestAnimationFrame(loop);
           return;
         }
 
-        const targetPointer = mapPointer(pointerHand[8], viewport);
+        const targetPointer = mapPointer(pointerHand[8], viewport, getHandScale(pointerHand));
         if (!hasPointerRef.current) {
           pointerRef.current = targetPointer;
           hasPointerRef.current = true;
@@ -603,6 +565,25 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
 
         const leftOpen = actionHand ? isOpenPalm(actionHand) : false;
         const leftClustered = actionHand ? isHandClustered(actionHand) : false;
+        const canTriggerPrimary = now >= menuCooldownUntilRef.current;
+        const hoveredAction =
+          document
+            .elementFromPoint(nextPointer.x, nextPointer.y)
+            ?.closest("[data-action-id]")
+            ?.getAttribute("data-action-id") ?? null;
+
+        const nextGesture: Gesture =
+          modeRef.current === "menu" && leftClustered
+            ? "grab"
+            : leftClustered
+              ? "clenched"
+              : leftOpen
+                ? "open"
+                : "neutral";
+
+        let nextIntent: Intent = "idle";
+        let shouldContinue = false;
+
         drawFingertipPreview(
           previewCanvasRef.current,
           videoRef.current,
@@ -612,18 +593,32 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
           leftClustered,
         );
 
-        const hoveredAction =
-          document
-            .elementFromPoint(nextPointer.x, nextPointer.y)
-            ?.closest("[data-action-id]")
-            ?.getAttribute("data-action-id") ?? null;
-
-        const isMenuDragArmed = modeRef.current === "menu" && leftClustered;
-        if (leftClustered && hoveredAction && !rotationDragMovedRef.current) {
-          armedActionRef.current = hoveredAction;
+        if (
+          modeRef.current !== "menu" &&
+          previousGestureRef.current === "clenched" &&
+          nextGesture === "open" &&
+          canTriggerPrimary
+        ) {
+          nextIntent = "menu-intent";
+          openMenu();
+          shouldContinue = true;
         }
 
-        if (isMenuDragArmed) {
+        if (!shouldContinue && modeRef.current === "menu") {
+          swipeTrailRef.current = [
+            ...swipeTrailRef.current.filter((item) => now - item.time < SWIPE_WINDOW_MS),
+            { x: nextPointer.x, y: nextPointer.y, time: now },
+          ];
+
+          if (detectBackSwipe(swipeTrailRef.current, viewport)) {
+            nextIntent = "back-swipe";
+            closeMenu();
+            shouldContinue = true;
+          }
+        }
+
+        if (!shouldContinue && modeRef.current === "menu" && leftClustered) {
+          nextIntent = "rotation";
           if (!brainDragActiveRef.current) {
             dispatchScenePointer(brainSceneRef.current, "down", nextPointer.x, nextPointer.y);
             brainDragActiveRef.current = true;
@@ -635,10 +630,12 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
           if (grabAnchorRef.current) {
             const deltaX = gripPoint.x - grabAnchorRef.current.x;
             const deltaY = gripPoint.y - grabAnchorRef.current.y;
+
             if (Math.abs(deltaX) + Math.abs(deltaY) > 0.012) {
               rotationDragMovedRef.current = true;
               armedActionRef.current = null;
             }
+
             setRotation((current) => ({
               x: clamp(current.x + deltaY * 4.1, -0.75, 0.75),
               y: current.y + deltaX * 6.2,
@@ -653,41 +650,31 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
           grabAnchorRef.current = null;
         }
 
-        swipeTrailRef.current = [
-          ...swipeTrailRef.current.filter((item) => performance.now() - item.time < SWIPE_WINDOW_MS),
-          { x: nextPointer.x, y: nextPointer.y, time: performance.now() },
-        ];
-
-        if (modeRef.current === "menu" && detectBackSwipe(swipeTrailRef.current, viewport)) {
-          closeMenu();
-          setState({
-            gesture: "neutral",
-            hoveredAction: null,
-          });
-          frameRef.current = requestAnimationFrame(loop);
-          return;
-        }
-
-        const gesture: Gesture = isMenuDragArmed
-          ? "grab"
-          : leftClustered
-            ? "clenched"
-            : leftOpen
-              ? "open"
-              : "neutral";
-
         if (
-          (previousGestureRef.current === "clenched" || previousGestureRef.current === "grab") &&
-          gesture === "open" &&
-          armedActionRef.current &&
-          hoveredAction === armedActionRef.current &&
+          !shouldContinue &&
+          leftClustered &&
+          hoveredAction &&
+          canTriggerPrimary &&
           !rotationDragMovedRef.current
         ) {
+          armedActionRef.current = hoveredAction;
+        }
+
+        if (
+          !shouldContinue &&
+          (previousGestureRef.current === "clenched" || previousGestureRef.current === "grab") &&
+          nextGesture === "open" &&
+          armedActionRef.current &&
+          hoveredAction === armedActionRef.current &&
+          canTriggerPrimary &&
+          !rotationDragMovedRef.current
+        ) {
+          nextIntent = "selection";
           activateAction(armedActionRef.current);
           armedActionRef.current = null;
         }
 
-        if (!leftClustered && gesture !== "open") {
+        if (!leftClustered && nextGesture !== "open") {
           armedActionRef.current = null;
         }
 
@@ -695,10 +682,13 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
           rotationDragMovedRef.current = false;
         }
 
-        previousGestureRef.current = gesture;
+        previousGestureRef.current = nextGesture;
         setState({
-          gesture,
+          gesture: nextGesture,
           hoveredAction,
+          intent: nextIntent,
+          sensorState: brightnessRef.current < LOW_LIGHT_THRESHOLD ? "low-light" : "tracking",
+          statusLabel: brightnessRef.current < LOW_LIGHT_THRESHOLD ? "Low light" : "Hand tracking live",
         });
 
         frameRef.current = requestAnimationFrame(loop);
@@ -764,8 +754,9 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
                 x1={node.x}
                 y1={node.y}
                 x2={node.connectorX}
-                y2={node.cardY + 44}
+                y2={node.cardY + 46}
                 className={styles.menuConnector}
+                style={{ opacity: node.cardOpacity }}
               />
             ))}
           </svg>
@@ -786,6 +777,7 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
                   width: node.size,
                   height: node.size,
                   zIndex: 20 + Math.round(node.depth * 10),
+                  opacity: 0.62 + node.depth * 0.38,
                 }}
               />
             ) : null,
@@ -801,12 +793,18 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
                 left: node.cardX,
                 top: node.cardY,
                 width: node.cardWidth,
+                ["--card-scale" as string]: node.cardScale.toString(),
+                ["--card-opacity" as string]: node.cardOpacity.toString(),
               }}
             >
-              <p className={styles.menuCardStatus}>{node.status}</p>
+              <p className={styles.menuCardStatus}>
+                {node.accentLabel} / {node.year}
+              </p>
               <h2 className={styles.menuCardTitle}>{node.name}</h2>
               <p className={styles.menuCardCopy}>{node.description}</p>
               <div className={styles.menuCardMeta}>
+                <span className={styles.menuMetaPill}>{node.status}</span>
+                <span className={styles.menuMetaPill}>{node.interactionType}</span>
                 {node.stack.map((item) => (
                   <span key={item} className={styles.menuMetaPill}>
                     {item}
@@ -820,11 +818,25 @@ export function HandDockHome({ brainScene, robotScene }: HandDockHomeProps) {
 
       <div
         className={`${styles.reticle} ${
-          state.gesture === "clenched" || state.gesture === "grab" ? styles.reticleArmed : ""
+          state.intent === "selection" || state.intent === "rotation" ? styles.reticleArmed : ""
         } ${state.gesture !== "searching" ? styles.reticleVisible : ""}`}
         style={{ transform: `translate3d(${pointer.x}px, ${pointer.y}px, 0)` }}
       >
         <div className={styles.reticleCore} />
+      </div>
+
+      <div className={styles.statusDock}>
+        <span
+          className={`${styles.statusDot} ${
+            state.sensorState === "camera-blocked"
+              ? styles.statusDotBlocked
+              : state.sensorState === "low-light"
+                ? styles.statusDotWarning
+                : styles.statusDotLive
+          }`}
+          aria-hidden="true"
+        />
+        <span className={styles.statusLabel}>{state.statusLabel}</span>
       </div>
 
       <div className={styles.previewDock}>
