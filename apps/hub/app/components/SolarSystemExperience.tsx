@@ -6,7 +6,6 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./SolarSystemExperience.module.css";
 import {
-  averagePoint,
   FINGERTIP_INDICES,
   GLOBAL_MENU_FLAG_KEY,
   type Landmark,
@@ -64,15 +63,12 @@ const POINTER_SMOOTHING = 0.32;
 const MENU_ENTRY_COOLDOWN_MS = 520;
 const LOW_LIGHT_THRESHOLD = 42;
 const PINCH_THRESHOLD = 0.48;
-const ZOOM_MIN = 0.86;
-const SYSTEM_ZOOM_MAX = 2.8;
-const FOCUS_ZOOM_MAX = 6.4;
+const SYSTEM_ZOOM = 1.18;
 const FOCUS_EXIT_ZOOM = 1.42;
 const FOCUS_ZOOM_STEP = 4.2;
+const SUN_FOCUS_ZOOM = 3.6;
 const MENU_RETURN_HOLD_MS = 220;
-const PALM_CONTACT_HOLD_MS = 180;
-const ZOOM_Y_SENSITIVITY = 3.2;
-const ZOOM_DEPTH_SENSITIVITY = 2.4;
+const BLACK_HOLE_HOLD_MS = 180;
 const SOLAR_BODIES: BodySpec[] = [
   {
     id: "sun",
@@ -386,22 +382,6 @@ function lerp(start: number, end: number, alpha: number) {
   return start + (end - start) * alpha;
 }
 
-function getPalmCenter(points: Landmark[]) {
-  return averagePoint([points[0], points[5], points[9], points[13], points[17]]);
-}
-
-function arePalmsTouching(leftHand: Landmark[], rightHand: Landmark[]) {
-  const leftCenter = getPalmCenter(leftHand);
-  const rightCenter = getPalmCenter(rightHand);
-  const averageScale = (getHandScale(leftHand) + getHandScale(rightHand)) * 0.5 || 1;
-  const palmDistance = distance(leftCenter, rightCenter) / averageScale;
-  const wristDistance = distance(leftHand[0], rightHand[0]) / averageScale;
-  const verticalOffset = Math.abs(leftCenter.y - rightCenter.y) / averageScale;
-  const thumbDistance = distance(leftHand[4], rightHand[4]) / averageScale;
-
-  return palmDistance < 1.2 && wristDistance < 1.9 && verticalOffset < 0.5 && thumbDistance < 1.35;
-}
-
 function orbitPosition(body: BodySpec, time: number) {
   if (body.orbitRadius === 0) {
     return { x: 0, y: 0 };
@@ -568,14 +548,15 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
   const leftPinchedRef = useRef(false);
   const menuCooldownUntilRef = useRef(0);
   const menuReturnArmedAtRef = useRef<number | null>(null);
-  const palmContactArmedAtRef = useRef<number | null>(null);
+  const leftBackArmedAtRef = useRef<number | null>(null);
+  const blackHoleArmedAtRef = useRef<number | null>(null);
   const viewRef = useRef({
     cameraX: -90,
     cameraY: 0,
     manualX: 0,
     manualY: 0,
     zoom: 1.08,
-    targetZoom: 1.12,
+    targetZoom: SYSTEM_ZOOM,
   });
   const dragStateRef = useRef({
     active: false,
@@ -587,12 +568,6 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
   const selectedIdRef = useRef<string | null>(selectedId);
   const hoveredIdRef = useRef<string | null>(null);
   const blackHoleVisibleRef = useRef(false);
-  const zoomStateRef = useRef({
-    active: false,
-    anchorY: 0,
-    anchorScale: 1,
-    anchorZoom: 1.12,
-  });
   const stars = useMemo(() => seededStars(320), []);
 
   useEffect(() => {
@@ -710,8 +685,8 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
           leftPinchedRef.current = false;
           dragStateRef.current.active = false;
           menuReturnArmedAtRef.current = null;
-          palmContactArmedAtRef.current = null;
-          zoomStateRef.current.active = false;
+          leftBackArmedAtRef.current = null;
+          blackHoleArmedAtRef.current = null;
           hoveredIdRef.current = null;
           setHoveredId(null);
           trackingFrameRef.current = requestAnimationFrame(loop);
@@ -753,64 +728,59 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
         const leftPinched = leftHand ? isPinched(leftHand) : false;
         const rightOpen = isOpenPalm(pointerHand);
         const rightClustered = isHandClustered(pointerHand);
-        const leftZooming = Boolean(leftHand && leftOpen && !leftPinched);
-        const palmsTouching = Boolean(
+        const bothOpen = Boolean(
           leftHand &&
             leftOpen &&
             rightOpen &&
             !leftPinched &&
             !rightPinched &&
-            arePalmsTouching(leftHand, pointerHand),
+            !leftClustered &&
+            !rightClustered,
         );
 
-        if (leftHand && leftZooming) {
-          const palmCenter = getPalmCenter(leftHand);
-          const handScale = getHandScale(leftHand);
-          const maximumZoom = selectedIdRef.current ? FOCUS_ZOOM_MAX : SYSTEM_ZOOM_MAX;
-
-          if (!zoomStateRef.current.active) {
-            zoomStateRef.current = {
-              active: true,
-              anchorY: palmCenter.y,
-              anchorScale: handScale,
-              anchorZoom: viewRef.current.targetZoom,
-            };
-          } else {
-            const deltaY = (zoomStateRef.current.anchorY - palmCenter.y) * ZOOM_Y_SENSITIVITY;
-            const depthDelta =
-              ((handScale - zoomStateRef.current.anchorScale) / zoomStateRef.current.anchorScale) *
-              ZOOM_DEPTH_SENSITIVITY;
-            viewRef.current.targetZoom = clamp(
-              zoomStateRef.current.anchorZoom + deltaY + depthDelta,
-              ZOOM_MIN,
-              maximumZoom,
-            );
-          }
-        } else {
-          zoomStateRef.current.active = false;
-        }
-
-        if (selectedIdRef.current && viewRef.current.targetZoom <= FOCUS_EXIT_ZOOM) {
+        if (
+          selectedIdRef.current &&
+          viewRef.current.targetZoom <= FOCUS_EXIT_ZOOM &&
+          viewRef.current.zoom <= FOCUS_EXIT_ZOOM + 0.1
+        ) {
           selectedIdRef.current = null;
           setSelectedId(null);
           hoveredIdRef.current = null;
           setHoveredId(null);
           viewRef.current.manualX = 0;
           viewRef.current.manualY = 0;
-          viewRef.current.targetZoom = 1.18;
+          viewRef.current.targetZoom = SYSTEM_ZOOM;
         }
 
-        if (!blackHoleVisibleRef.current && palmsTouching) {
-          if (!palmContactArmedAtRef.current) {
-            palmContactArmedAtRef.current = now;
-          } else if (now - palmContactArmedAtRef.current >= PALM_CONTACT_HOLD_MS) {
+        if (!blackHoleVisibleRef.current && bothOpen) {
+          if (!blackHoleArmedAtRef.current) {
+            blackHoleArmedAtRef.current = now;
+          } else if (now - blackHoleArmedAtRef.current >= BLACK_HOLE_HOLD_MS) {
             blackHoleVisibleRef.current = true;
             setBlackHoleVisible(true);
-            palmContactArmedAtRef.current = null;
+            blackHoleArmedAtRef.current = null;
             menuCooldownUntilRef.current = now + MENU_ENTRY_COOLDOWN_MS;
           }
-        } else if (!palmsTouching) {
-          palmContactArmedAtRef.current = null;
+        } else if (!bothOpen) {
+          blackHoleArmedAtRef.current = null;
+        }
+
+        if (leftClustered && !rightClustered && now >= menuCooldownUntilRef.current) {
+          if (!leftBackArmedAtRef.current) {
+            leftBackArmedAtRef.current = now;
+          } else if (now - leftBackArmedAtRef.current >= MENU_RETURN_HOLD_MS) {
+            menuCooldownUntilRef.current = now + MENU_ENTRY_COOLDOWN_MS;
+            if (selectedIdRef.current) {
+              viewRef.current.targetZoom = SYSTEM_ZOOM;
+            } else if (!blackHoleVisibleRef.current) {
+              sessionStorage.setItem(GLOBAL_MENU_FLAG_KEY, "1");
+              router.push("/");
+              return;
+            }
+            leftBackArmedAtRef.current = null;
+          }
+        } else {
+          leftBackArmedAtRef.current = null;
         }
 
         if (leftClustered && rightClustered && now >= menuCooldownUntilRef.current) {
@@ -855,7 +825,7 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
           setBlackHoleVisible(false);
           viewRef.current.manualX = 0;
           viewRef.current.manualY = 0;
-          viewRef.current.targetZoom = hoveredBody.body.id === "sun" ? 3.6 : FOCUS_ZOOM_STEP;
+          viewRef.current.targetZoom = hoveredBody.body.id === "sun" ? SUN_FOCUS_ZOOM : FOCUS_ZOOM_STEP;
         }
         leftPinchedRef.current = leftPinched;
 
@@ -1096,7 +1066,7 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
             <p className={styles.eyebrow}>Solar Project</p>
             <h1 className={styles.title}>Solar Orrery</h1>
             <p className={styles.copy}>
-              Procedural planets orbit the sun in real time. Right pinch drags the field, left open-hand motion zooms without snap-back, and left pinch selects a body.
+              Procedural planets orbit the sun in real time. Right pinch drags the field, left pinch selects a body, and left fist pulls back out of focus.
             </p>
             <div className={styles.chipRow}>
               <span className={styles.chip}>All planets + key moons</span>
@@ -1143,7 +1113,7 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
               <p className={styles.detailEyebrow}>System Overview / Procedural</p>
               <h2 className={styles.detailTitle}>Select A Body</h2>
               <p className={styles.detailCopy}>
-                Every planet and key moon is generated in code, not from external texture files. Use the right hand to drag across the atlas, left open-hand motion to zoom, and left pinch to focus a target.
+                Every planet and key moon is generated in code, not from external texture files. Use the right hand to drag the atlas, left pinch to select a target, and left fist to back out.
               </p>
               <div className={styles.detailMeta}>
                 <span className={styles.metaPill}>9 primary bodies</span>
@@ -1156,10 +1126,9 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
 
         <div className={styles.hintBar}>
           <span className={styles.hint}>Right pinch + move: drag view</span>
-          <span className={styles.hint}>Left hand open + raise/lower: zoom</span>
-          <span className={styles.hint}>Left pinch on body: focus</span>
-          <span className={styles.hint}>Zoom out far enough: return to system</span>
-          <span className={styles.hint}>Open palms together: black hole</span>
+          <span className={styles.hint}>Left pinch: click / focus</span>
+          <span className={styles.hint}>Left fist: zoom out / return</span>
+          <span className={styles.hint}>Both open hands: black hole</span>
           <span className={styles.hint}>Both fists: close singularity / return to menu</span>
         </div>
       </div>

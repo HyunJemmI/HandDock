@@ -4,6 +4,6 @@ import { fileURLToPath } from "node:url";
 
 const mode = process.argv[2] === "build" ? "build" : "dev";
 const rootDir = dirname(dirname(fileURLToPath(import.meta.url)));
-const targetDir = resolve(rootDir, ".next", mode);
+const targetDir = resolve(rootDir, mode === "build" ? ".next-build" : ".next-dev");
 
 rmSync(targetDir, { recursive: true, force: true });
