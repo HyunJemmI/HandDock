@@ -60,6 +60,7 @@ type MenuNode = {
   cardX: number;
   cardY: number;
   cardWidth: number;
+  cardHeight: number;
   connectorX: number;
   cardScale: number;
   cardOpacity: number;
@@ -69,6 +70,7 @@ const MENU_BUTTON_ID = "menu-button";
 const POINTER_SMOOTHING = 0.32;
 const CURSOR_GAIN_X = 1.78;
 const CURSOR_GAIN_Y = 1.58;
+const ACTION_OPEN_HOLD_MS = 220;
 const MENU_ENTRY_COOLDOWN_MS = 520;
 const MENU_CLOSE_HOLD_MS = 220;
 const LOW_LIGHT_THRESHOLD = 44;
@@ -104,6 +106,18 @@ function rotatePoint(
     y: point.y * cosX - xzZ * sinX,
     z: point.y * sinX + xzZ * cosX,
   };
+}
+
+function rectanglesOverlap(
+  left: { x: number; y: number; width: number; height: number },
+  right: { x: number; y: number; width: number; height: number },
+) {
+  return !(
+    left.x + left.width <= right.x ||
+    right.x + right.width <= left.x ||
+    left.y + left.height <= right.y ||
+    right.y + right.height <= left.y
+  );
 }
 
 function buildMenuNodes(viewport: Viewport, rotation: Rotation) {
@@ -147,13 +161,14 @@ function buildMenuNodes(viewport: Viewport, rotation: Rotation) {
       cardX,
       cardY,
       cardWidth,
+      cardHeight: cardHeightEstimate,
       connectorX: cardSide > 0 ? cardX : cardX + cardWidth,
       cardScale: 0.92 + depth * 0.12,
       cardOpacity: 0.5 + depth * 0.5,
     };
   });
 
-  const visibleNodes = [-1, 1].flatMap((side) => {
+  const sideResolvedNodes = [-1, 1].flatMap((side) => {
     const sideNodes = nodes
       .filter((node) => node.visible && node.cardSide === side)
       .sort((left, right) => left.cardY - right.cardY)
@@ -192,6 +207,49 @@ function buildMenuNodes(viewport: Viewport, rotation: Rotation) {
       connectorX: node.cardSide > 0 ? node.cardX : node.cardX + node.cardWidth,
     }));
   });
+  const placedRects: Array<{ x: number; y: number; width: number; height: number }> = [];
+  const visibleNodes = sideResolvedNodes
+    .sort((left, right) => right.depth - left.depth)
+    .flatMap((node) => {
+      const xOffsets = [0, 18, 36];
+      const yOffsets = [0, -28, 28, -56, 56, -84, 84];
+
+      for (const xOffset of xOffsets) {
+        for (const yOffset of yOffsets) {
+          const nextX = clamp(
+            node.cardX + node.cardSide * xOffset,
+            cardInset,
+            viewport.width - node.cardWidth - cardInset,
+          );
+          const nextY = clamp(
+            node.cardY + yOffset,
+            cardInset,
+            viewport.height - cardHeightEstimate - cardInset,
+          );
+          const rect = {
+            x: nextX,
+            y: nextY,
+            width: node.cardWidth,
+            height: cardHeightEstimate,
+          };
+
+          if (!placedRects.some((placedRect) => rectanglesOverlap(rect, placedRect))) {
+            placedRects.push(rect);
+            return [
+              {
+                ...node,
+                cardX: nextX,
+                cardY: nextY,
+                connectorX: node.cardSide > 0 ? nextX : nextX + node.cardWidth,
+              },
+            ];
+          }
+        }
+      }
+
+      return [];
+    })
+    .sort((left, right) => left.depth - right.depth);
 
   return { nodes, visibleNodes };
 }
@@ -342,8 +400,9 @@ export function HandDockHome({
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const lightCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<number | null>(null);
-  const armedActionRef = useRef<string | null>(null);
   const previousGestureRef = useRef<Gesture>("searching");
+  const openActionRef = useRef<string | null>(null);
+  const openActionStartedAtRef = useRef<number | null>(null);
   const menuCloseArmedAtRef = useRef<number | null>(null);
   const menuCooldownUntilRef = useRef(0);
   const brightnessRef = useRef(255);
@@ -374,14 +433,16 @@ export function HandDockHome({
     menuCooldownUntilRef.current = performance.now() + MENU_ENTRY_COOLDOWN_MS;
     modeRef.current = "menu";
     setMode("menu");
-    armedActionRef.current = null;
+    openActionRef.current = null;
+    openActionStartedAtRef.current = null;
     menuCloseArmedAtRef.current = null;
   }
 
   function closeMenu() {
     modeRef.current = "landing";
     setMode("landing");
-    armedActionRef.current = null;
+    openActionRef.current = null;
+    openActionStartedAtRef.current = null;
     menuCloseArmedAtRef.current = null;
   }
 
@@ -507,7 +568,8 @@ export function HandDockHome({
 
         if (!pointerHand) {
           drawFingertipPreview(previewCanvasRef.current, videoRef.current, [], undefined, undefined, false);
-          armedActionRef.current = null;
+          openActionRef.current = null;
+          openActionStartedAtRef.current = null;
           menuCloseArmedAtRef.current = null;
           previousGestureRef.current = "searching";
           setState({
@@ -541,6 +603,7 @@ export function HandDockHome({
 
         const leftOpen = actionHand ? isOpenPalm(actionHand) : false;
         const leftClustered = actionHand ? isHandClustered(actionHand) : false;
+        const rightClustered = isHandClustered(pointerHand);
         const canTriggerPrimary = now >= menuCooldownUntilRef.current;
         const hoveredAction =
           document
@@ -574,7 +637,7 @@ export function HandDockHome({
         }
 
         if (!shouldContinue && modeRef.current === "menu") {
-          if (leftClustered && !hoveredAction) {
+          if (leftClustered && rightClustered) {
             if (!menuCloseArmedAtRef.current) {
               menuCloseArmedAtRef.current = now;
             } else if (now - menuCloseArmedAtRef.current >= MENU_CLOSE_HOLD_MS) {
@@ -587,25 +650,28 @@ export function HandDockHome({
           }
         }
 
-        if (!shouldContinue && leftClustered && hoveredAction && canTriggerPrimary) {
-          armedActionRef.current = hoveredAction;
-        }
-
         if (
           !shouldContinue &&
-          previousGestureRef.current === "clenched" &&
-          nextGesture === "open" &&
-          armedActionRef.current &&
-          hoveredAction === armedActionRef.current &&
+          leftOpen &&
+          hoveredAction &&
           canTriggerPrimary
         ) {
           nextIntent = "selection";
-          activateAction(armedActionRef.current);
-          armedActionRef.current = null;
-        }
-
-        if (!leftClustered && nextGesture !== "open") {
-          armedActionRef.current = null;
+          if (openActionRef.current !== hoveredAction) {
+            openActionRef.current = hoveredAction;
+            openActionStartedAtRef.current = now;
+          } else if (
+            openActionStartedAtRef.current &&
+            now - openActionStartedAtRef.current >= ACTION_OPEN_HOLD_MS
+          ) {
+            menuCooldownUntilRef.current = now + MENU_ENTRY_COOLDOWN_MS;
+            activateAction(hoveredAction);
+            openActionRef.current = null;
+            openActionStartedAtRef.current = null;
+          }
+        } else {
+          openActionRef.current = null;
+          openActionStartedAtRef.current = null;
         }
 
         previousGestureRef.current = nextGesture;
