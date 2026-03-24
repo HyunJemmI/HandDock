@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { BlackHoleScene } from "../../components/BlackHoleScene";
 import { SolarSystemExperience } from "../../components/SolarSystemExperience";
 import { WorkGestureBack } from "../../components/WorkGestureBack";
 import styles from "../../page.module.css";
@@ -22,7 +23,7 @@ export default async function WorkPage({
   }
 
   if (slug === "solar-orrery") {
-    return <SolarSystemExperience />;
+    return <SolarSystemExperience blackHoleScene={<BlackHoleScene />} />;
   }
 
   return (

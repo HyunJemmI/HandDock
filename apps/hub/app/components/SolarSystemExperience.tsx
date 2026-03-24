@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./SolarSystemExperience.module.css";
 import {
@@ -37,6 +38,8 @@ type BodySpec = {
   description: string;
   effectLabel: string;
   atmosphereLabel: string;
+  surfaceFocus: string;
+  traits: string[];
   radius: number;
   orbitRadius: number;
   orbitPeriod: number;
@@ -51,6 +54,9 @@ type BodyScreen = {
   radius: number;
   body: BodySpec;
 };
+type SolarSystemExperienceProps = {
+  blackHoleScene: ReactNode;
+};
 
 const CURSOR_GAIN_X = 1.74;
 const CURSOR_GAIN_Y = 1.58;
@@ -59,8 +65,12 @@ const MENU_ENTRY_COOLDOWN_MS = 520;
 const LOW_LIGHT_THRESHOLD = 42;
 const PINCH_THRESHOLD = 0.48;
 const ZOOM_MIN = 0.86;
-const ZOOM_MAX = 3.6;
+const SYSTEM_ZOOM_MAX = 2.8;
+const FOCUS_ZOOM_MAX = 6.4;
+const FOCUS_EXIT_ZOOM = 1.42;
+const FOCUS_ZOOM_STEP = 4.2;
 const MENU_RETURN_HOLD_MS = 220;
+const PALM_CONTACT_HOLD_MS = 180;
 const ZOOM_Y_SENSITIVITY = 3.2;
 const ZOOM_DEPTH_SENSITIVITY = 2.4;
 const SOLAR_BODIES: BodySpec[] = [
@@ -72,6 +82,8 @@ const SOLAR_BODIES: BodySpec[] = [
       "The solar furnace that anchors every orbit. The view emphasizes convective plasma lanes and eruptive flares rolling across the surface.",
     effectLabel: "Plasma bloom",
     atmosphereLabel: "Solar prominences",
+    surfaceFocus: "Eruptive convection lanes and magnetic flare loops",
+    traits: ["Nuclear fusion core", "Plasma granulation", "Magnetic storm arcs"],
     radius: 44,
     orbitRadius: 0,
     orbitPeriod: 1,
@@ -88,6 +100,8 @@ const SOLAR_BODIES: BodySpec[] = [
       "Mercury stays scarred and heat-blasted, with cratered stone broken by a trembling thermal shimmer near the surface.",
     effectLabel: "Heat shimmer",
     atmosphereLabel: "Exosphere trace",
+    surfaceFocus: "Crater fields with fractured basalt ridges",
+    traits: ["Extreme day-night swing", "Impact-scarred crust", "Thin exosphere"],
     radius: 8,
     orbitRadius: 74,
     orbitPeriod: 12,
@@ -104,6 +118,8 @@ const SOLAR_BODIES: BodySpec[] = [
       "Venus is rendered as a dense sulfuric globe where high cloud layers drift in thick amber spirals.",
     effectLabel: "Sulfur haze",
     atmosphereLabel: "Opaque super-rotation",
+    surfaceFocus: "Sulfur cloud decks with pressure-driven shear",
+    traits: ["Runaway greenhouse heat", "Dense acid clouds", "Slow retrograde spin"],
     radius: 12,
     orbitRadius: 108,
     orbitPeriod: 20,
@@ -120,6 +136,8 @@ const SOLAR_BODIES: BodySpec[] = [
       "Earth carries animated cloud belts and bright ocean bloom, with the Moon orbiting as the primary satellite anchor.",
     effectLabel: "Cloud drift",
     atmosphereLabel: "Weather bands",
+    surfaceFocus: "Ocean blues, cloud rivers, and living weather fronts",
+    traits: ["Liquid water surface", "Dynamic cloud systems", "Single large stabilizing moon"],
     radius: 14,
     orbitRadius: 146,
     orbitPeriod: 30,
@@ -138,6 +156,8 @@ const SOLAR_BODIES: BodySpec[] = [
       "Mars shows ochre deserts and thin storm plumes, with Phobos and Deimos circling as close irregular moons.",
     effectLabel: "Dust storm",
     atmosphereLabel: "Thin carbon haze",
+    surfaceFocus: "Ochre basins with sweeping dust front bands",
+    traits: ["Iron-rich regolith", "Seasonal dust storms", "Two captured moons"],
     radius: 11,
     orbitRadius: 192,
     orbitPeriod: 44,
@@ -157,6 +177,8 @@ const SOLAR_BODIES: BodySpec[] = [
       "Jupiter rotates through stacked cloud bands and a storm-heavy equator, with the Galilean moons distributed in wide luminous arcs.",
     effectLabel: "Storm bands",
     atmosphereLabel: "Ammonia cloud belts",
+    surfaceFocus: "Layered cloud belts and giant turbulent vortices",
+    traits: ["Great Red Spot scale storms", "Hydrogen-helium envelope", "Galilean moon system"],
     radius: 28,
     orbitRadius: 264,
     orbitPeriod: 68,
@@ -178,6 +200,8 @@ const SOLAR_BODIES: BodySpec[] = [
       "Saturn glows with dusty rings and pale atmospheric bands, while Titan and icy companions trace the ring plane.",
     effectLabel: "Ring dust",
     atmosphereLabel: "Upper haze",
+    surfaceFocus: "Fine ring debris and pale equatorial haze sheets",
+    traits: ["Dominant ring system", "Low-density gas giant", "Titan methane atmosphere"],
     radius: 24,
     orbitRadius: 326,
     orbitPeriod: 92,
@@ -198,6 +222,8 @@ const SOLAR_BODIES: BodySpec[] = [
       "Uranus is presented as a cold cyan sphere with quiet auroral sheens, circled by Titania and Oberon.",
     effectLabel: "Aurora veil",
     atmosphereLabel: "Methane ice haze",
+    surfaceFocus: "Muted cyan shell with cold polar glow",
+    traits: ["Extreme axial tilt", "Ice giant interior", "Subtle auroral veil"],
     radius: 18,
     orbitRadius: 388,
     orbitPeriod: 122,
@@ -217,6 +243,8 @@ const SOLAR_BODIES: BodySpec[] = [
       "Neptune keeps the darkest blues in the system, with wind streaks and a tight Triton orbit cutting across the outer dark.",
     effectLabel: "Jet stream",
     atmosphereLabel: "Supersonic methane winds",
+    surfaceFocus: "Deep blue atmosphere with high-velocity wind scars",
+    traits: ["Supersonic winds", "Methane-rich atmosphere", "Triton retrograde orbit"],
     radius: 18,
     orbitRadius: 442,
     orbitPeriod: 152,
@@ -360,6 +388,18 @@ function lerp(start: number, end: number, alpha: number) {
 
 function getPalmCenter(points: Landmark[]) {
   return averagePoint([points[0], points[5], points[9], points[13], points[17]]);
+}
+
+function arePalmsTouching(leftHand: Landmark[], rightHand: Landmark[]) {
+  const leftCenter = getPalmCenter(leftHand);
+  const rightCenter = getPalmCenter(rightHand);
+  const averageScale = (getHandScale(leftHand) + getHandScale(rightHand)) * 0.5 || 1;
+  const palmDistance = distance(leftCenter, rightCenter) / averageScale;
+  const wristDistance = distance(leftHand[0], rightHand[0]) / averageScale;
+  const verticalOffset = Math.abs(leftCenter.y - rightCenter.y) / averageScale;
+  const thumbDistance = distance(leftHand[4], rightHand[4]) / averageScale;
+
+  return palmDistance < 1.2 && wristDistance < 1.9 && verticalOffset < 0.5 && thumbDistance < 1.35;
 }
 
 function orbitPosition(body: BodySpec, time: number) {
@@ -506,10 +546,11 @@ function drawPlanetEffect(
   }
 }
 
-export function SolarSystemExperience() {
+export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceProps) {
   const router = useRouter();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [blackHoleVisible, setBlackHoleVisible] = useState(false);
   const [sensorState, setSensorState] = useState<SensorState>("searching");
   const [statusLabel, setStatusLabel] = useState("Searching for hands");
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
@@ -527,6 +568,7 @@ export function SolarSystemExperience() {
   const leftPinchedRef = useRef(false);
   const menuCooldownUntilRef = useRef(0);
   const menuReturnArmedAtRef = useRef<number | null>(null);
+  const palmContactArmedAtRef = useRef<number | null>(null);
   const viewRef = useRef({
     cameraX: -90,
     cameraY: 0,
@@ -544,6 +586,7 @@ export function SolarSystemExperience() {
   });
   const selectedIdRef = useRef<string | null>(selectedId);
   const hoveredIdRef = useRef<string | null>(null);
+  const blackHoleVisibleRef = useRef(false);
   const zoomStateRef = useRef({
     active: false,
     anchorY: 0,
@@ -555,6 +598,10 @@ export function SolarSystemExperience() {
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
+
+  useEffect(() => {
+    blackHoleVisibleRef.current = blackHoleVisible;
+  }, [blackHoleVisible]);
 
   useEffect(() => {
     const onResize = () => {
@@ -663,6 +710,7 @@ export function SolarSystemExperience() {
           leftPinchedRef.current = false;
           dragStateRef.current.active = false;
           menuReturnArmedAtRef.current = null;
+          palmContactArmedAtRef.current = null;
           zoomStateRef.current.active = false;
           hoveredIdRef.current = null;
           setHoveredId(null);
@@ -703,14 +751,22 @@ export function SolarSystemExperience() {
         const leftClustered = leftHand ? isHandClustered(leftHand) : false;
         const leftOpen = leftHand ? isOpenPalm(leftHand) : false;
         const leftPinched = leftHand ? isPinched(leftHand) : false;
+        const rightOpen = isOpenPalm(pointerHand);
         const rightClustered = isHandClustered(pointerHand);
         const leftZooming = Boolean(leftHand && leftOpen && !leftPinched);
+        const palmsTouching = Boolean(
+          leftHand &&
+            leftOpen &&
+            rightOpen &&
+            !leftPinched &&
+            !rightPinched &&
+            arePalmsTouching(leftHand, pointerHand),
+        );
 
         if (leftHand && leftZooming) {
           const palmCenter = getPalmCenter(leftHand);
           const handScale = getHandScale(leftHand);
-          const minimumZoom = selectedIdRef.current ? 1.5 : ZOOM_MIN;
-          const maximumZoom = selectedIdRef.current ? ZOOM_MAX : 2.8;
+          const maximumZoom = selectedIdRef.current ? FOCUS_ZOOM_MAX : SYSTEM_ZOOM_MAX;
 
           if (!zoomStateRef.current.active) {
             zoomStateRef.current = {
@@ -726,7 +782,7 @@ export function SolarSystemExperience() {
               ZOOM_DEPTH_SENSITIVITY;
             viewRef.current.targetZoom = clamp(
               zoomStateRef.current.anchorZoom + deltaY + depthDelta,
-              minimumZoom,
+              ZOOM_MIN,
               maximumZoom,
             );
           }
@@ -734,23 +790,58 @@ export function SolarSystemExperience() {
           zoomStateRef.current.active = false;
         }
 
+        if (selectedIdRef.current && viewRef.current.targetZoom <= FOCUS_EXIT_ZOOM) {
+          selectedIdRef.current = null;
+          setSelectedId(null);
+          hoveredIdRef.current = null;
+          setHoveredId(null);
+          viewRef.current.manualX = 0;
+          viewRef.current.manualY = 0;
+          viewRef.current.targetZoom = 1.18;
+        }
+
+        if (!blackHoleVisibleRef.current && palmsTouching) {
+          if (!palmContactArmedAtRef.current) {
+            palmContactArmedAtRef.current = now;
+          } else if (now - palmContactArmedAtRef.current >= PALM_CONTACT_HOLD_MS) {
+            blackHoleVisibleRef.current = true;
+            setBlackHoleVisible(true);
+            palmContactArmedAtRef.current = null;
+            menuCooldownUntilRef.current = now + MENU_ENTRY_COOLDOWN_MS;
+          }
+        } else if (!palmsTouching) {
+          palmContactArmedAtRef.current = null;
+        }
+
         if (leftClustered && rightClustered && now >= menuCooldownUntilRef.current) {
           if (!menuReturnArmedAtRef.current) {
             menuReturnArmedAtRef.current = now;
           } else if (now - menuReturnArmedAtRef.current >= MENU_RETURN_HOLD_MS) {
             menuCooldownUntilRef.current = now + MENU_ENTRY_COOLDOWN_MS;
-            sessionStorage.setItem(GLOBAL_MENU_FLAG_KEY, "1");
-            router.push("/");
-            return;
+            if (blackHoleVisibleRef.current) {
+              blackHoleVisibleRef.current = false;
+              setBlackHoleVisible(false);
+            } else {
+              sessionStorage.setItem(GLOBAL_MENU_FLAG_KEY, "1");
+              router.push("/");
+              return;
+            }
           }
         } else {
           menuReturnArmedAtRef.current = null;
         }
 
-        const hoveredBody = bodyScreenRef.current
-          .slice()
-          .reverse()
-          .find((entry) => distance({ x: nextPointer.x, y: nextPointer.y }, { x: entry.x, y: entry.y }) <= entry.radius * 1.15);
+        const hoveredBody =
+          selectedIdRef.current || blackHoleVisibleRef.current
+            ? null
+            : bodyScreenRef.current
+                .slice()
+                .reverse()
+                .find(
+                  (entry) =>
+                    distance({ x: nextPointer.x, y: nextPointer.y }, { x: entry.x, y: entry.y }) <=
+                    entry.radius * 1.15,
+                );
         const hovered = hoveredBody?.body.id ?? null;
         if (hovered !== hoveredIdRef.current) {
           hoveredIdRef.current = hovered;
@@ -760,18 +851,24 @@ export function SolarSystemExperience() {
         if (leftPinched && !leftPinchedRef.current && hoveredBody && now >= menuCooldownUntilRef.current) {
           selectedIdRef.current = hoveredBody.body.id;
           setSelectedId(hoveredBody.body.id);
+          blackHoleVisibleRef.current = false;
+          setBlackHoleVisible(false);
           viewRef.current.manualX = 0;
           viewRef.current.manualY = 0;
-          viewRef.current.targetZoom = clamp(
-            Math.max(viewRef.current.targetZoom, hoveredBody.body.id === "sun" ? 1.95 : 2.15) + 0.45,
-            hoveredBody.body.id === "sun" ? 1.8 : 2,
-            ZOOM_MAX,
-          );
+          viewRef.current.targetZoom = hoveredBody.body.id === "sun" ? 3.6 : FOCUS_ZOOM_STEP;
         }
         leftPinchedRef.current = leftPinched;
 
         setSensorState(brightnessRef.current < LOW_LIGHT_THRESHOLD ? "low-light" : "tracking");
-        setStatusLabel(brightnessRef.current < LOW_LIGHT_THRESHOLD ? "Low light" : "Orbit controls live");
+        setStatusLabel(
+          brightnessRef.current < LOW_LIGHT_THRESHOLD
+            ? "Low light"
+            : blackHoleVisibleRef.current
+              ? "Singularity view active"
+              : selectedIdRef.current
+                ? "Surface focus live"
+                : "Orbit controls live",
+        );
 
         trackingFrameRef.current = requestAnimationFrame(loop);
       };
@@ -826,80 +923,130 @@ export function SolarSystemExperience() {
 
       const time = now * 0.0012;
       const selectedBody = selectedIdRef.current ? BODY_LOOKUP[selectedIdRef.current] : null;
-      const selectedPosition = selectedBody ? orbitPosition(selectedBody, time) : { x: -90, y: 0 };
-      const baseCameraX = selectedBody ? selectedPosition.x : -90;
-      const baseCameraY = selectedBody ? selectedPosition.y : 0;
+      const baseCameraX = selectedBody ? 0 : -90;
+      const baseCameraY = 0;
       viewRef.current.cameraX = lerp(viewRef.current.cameraX, baseCameraX + viewRef.current.manualX, 0.08);
       viewRef.current.cameraY = lerp(viewRef.current.cameraY, baseCameraY + viewRef.current.manualY, 0.08);
       viewRef.current.zoom = lerp(viewRef.current.zoom, viewRef.current.targetZoom, 0.08);
 
-      const sceneCenterX = width * 0.42;
-      const sceneCenterY = height * 0.56;
+      const sceneCenterX = selectedBody ? width * 0.24 : width * 0.42;
+      const sceneCenterY = selectedBody ? height * 0.54 : height * 0.56;
       const toScreen = (x: number, y: number) => ({
         x: sceneCenterX + (x - viewRef.current.cameraX) * viewRef.current.zoom,
         y: sceneCenterY + (y - viewRef.current.cameraY) * viewRef.current.zoom,
       });
 
-      context.strokeStyle = "rgba(255, 255, 255, 0.08)";
-      context.lineWidth = 1;
-      SOLAR_BODIES.filter((body) => body.orbitRadius > 0).forEach((body) => {
-        const orbitRadius = body.orbitRadius * viewRef.current.zoom;
-        context.beginPath();
-        context.ellipse(
-          sceneCenterX - viewRef.current.cameraX * viewRef.current.zoom,
-          sceneCenterY - viewRef.current.cameraY * viewRef.current.zoom,
-          orbitRadius,
-          orbitRadius * body.orbitTilt,
-          0,
-          0,
-          Math.PI * 2,
-        );
-        context.stroke();
-      });
-
       bodyScreenRef.current = [];
-      SOLAR_BODIES.forEach((body) => {
-        const world = orbitPosition(body, time);
-        const screen = toScreen(world.x, world.y);
-        const radius = clamp(body.radius * viewRef.current.zoom * 0.36, body.id === "sun" ? 22 : 4, body.id === "sun" ? 88 : 38);
-        const highlight = body.id === selectedIdRef.current || body.id === hoveredIdRef.current;
-        drawPlanetEffect(context, body, screen.x, screen.y, radius, time, highlight);
-
-        if (body.moons.length > 0) {
-          body.moons.forEach((moon, index) => {
-            const moonAngle = time * (1.8 + index * 0.35) / moon.orbitPeriod;
-            const moonX = screen.x + Math.cos(moonAngle) * moon.orbitRadius * viewRef.current.zoom * 0.18;
-            const moonY = screen.y + Math.sin(moonAngle) * moon.orbitRadius * viewRef.current.zoom * 0.12;
-            context.strokeStyle = "rgba(255, 255, 255, 0.1)";
-            context.lineWidth = 0.8;
-            context.beginPath();
-            context.arc(screen.x, screen.y, moon.orbitRadius * viewRef.current.zoom * 0.18, 0, Math.PI * 2);
-            context.stroke();
-            context.fillStyle = moon.tint;
-            context.beginPath();
-            context.arc(moonX, moonY, clamp(moon.radius * viewRef.current.zoom * 0.18, 1.2, 4.6), 0, Math.PI * 2);
-            context.fill();
-          });
-        }
-
-        if (highlight) {
-          context.strokeStyle = "rgba(255, 196, 134, 0.26)";
-          context.setLineDash([4, 6]);
+      if (selectedBody) {
+        context.fillStyle = "rgba(255, 255, 255, 0.03)";
+        for (let index = 0; index < 6; index += 1) {
           context.beginPath();
-          context.arc(screen.x, screen.y, radius * 1.6, 0, Math.PI * 2);
-          context.stroke();
-          context.setLineDash([]);
+          context.arc(
+            sceneCenterX - width * 0.03,
+            sceneCenterY + height * 0.02,
+            width * (0.1 + index * 0.04),
+            0,
+            Math.PI * 2,
+          );
+          context.fill();
         }
 
-        bodyScreenRef.current.push({
-          x: screen.x,
-          y: screen.y,
-          radius,
-          body,
-        });
-      });
+        const focusRadius = clamp(
+          selectedBody.radius * viewRef.current.zoom * (selectedBody.id === "sun" ? 1.7 : 1.42),
+          selectedBody.id === "sun" ? 150 : 110,
+          selectedBody.id === "sun" ? 300 : 220,
+        );
+        const focusX = sceneCenterX + viewRef.current.manualX * 0.42;
+        const focusY = sceneCenterY + viewRef.current.manualY * 0.3;
 
-      if (hoveredIdRef.current) {
+        drawPlanetEffect(context, selectedBody, focusX, focusY, focusRadius, time, true);
+
+        selectedBody.moons.forEach((moon, index) => {
+          const moonAngle = time * (1.2 + index * 0.32) / moon.orbitPeriod;
+          const orbitRadius = focusRadius * (1.24 + index * 0.18);
+          const moonX = focusX + Math.cos(moonAngle) * orbitRadius;
+          const moonY = focusY + Math.sin(moonAngle) * orbitRadius * 0.24;
+          context.strokeStyle = "rgba(255, 255, 255, 0.12)";
+          context.lineWidth = 1;
+          context.beginPath();
+          context.ellipse(focusX, focusY, orbitRadius, orbitRadius * 0.24, 0, 0, Math.PI * 2);
+          context.stroke();
+          context.fillStyle = moon.tint;
+          context.beginPath();
+          context.arc(moonX, moonY, clamp(moon.radius * 0.72, 2.2, 8), 0, Math.PI * 2);
+          context.fill();
+        });
+      } else {
+        context.strokeStyle = "rgba(255, 255, 255, 0.08)";
+        context.lineWidth = 1;
+        SOLAR_BODIES.filter((body) => body.orbitRadius > 0).forEach((body) => {
+          const orbitRadius = body.orbitRadius * viewRef.current.zoom;
+          context.beginPath();
+          context.ellipse(
+            sceneCenterX - viewRef.current.cameraX * viewRef.current.zoom,
+            sceneCenterY - viewRef.current.cameraY * viewRef.current.zoom,
+            orbitRadius,
+            orbitRadius * body.orbitTilt,
+            0,
+            0,
+            Math.PI * 2,
+          );
+          context.stroke();
+        });
+
+        SOLAR_BODIES.forEach((body) => {
+          const world = orbitPosition(body, time);
+          const screen = toScreen(world.x, world.y);
+          const radius = clamp(
+            body.radius * viewRef.current.zoom * 0.36,
+            body.id === "sun" ? 22 : 4,
+            body.id === "sun" ? 88 : 38,
+          );
+          const highlight = body.id === hoveredIdRef.current;
+          drawPlanetEffect(context, body, screen.x, screen.y, radius, time, highlight);
+
+          if (body.moons.length > 0) {
+            body.moons.forEach((moon, index) => {
+              const moonAngle = time * (1.8 + index * 0.35) / moon.orbitPeriod;
+              const moonX = screen.x + Math.cos(moonAngle) * moon.orbitRadius * viewRef.current.zoom * 0.18;
+              const moonY = screen.y + Math.sin(moonAngle) * moon.orbitRadius * viewRef.current.zoom * 0.12;
+              context.strokeStyle = "rgba(255, 255, 255, 0.1)";
+              context.lineWidth = 0.8;
+              context.beginPath();
+              context.arc(screen.x, screen.y, moon.orbitRadius * viewRef.current.zoom * 0.18, 0, Math.PI * 2);
+              context.stroke();
+              context.fillStyle = moon.tint;
+              context.beginPath();
+              context.arc(
+                moonX,
+                moonY,
+                clamp(moon.radius * viewRef.current.zoom * 0.18, 1.2, 4.6),
+                0,
+                Math.PI * 2,
+              );
+              context.fill();
+            });
+          }
+
+          if (highlight) {
+            context.strokeStyle = "rgba(255, 196, 134, 0.26)";
+            context.setLineDash([4, 6]);
+            context.beginPath();
+            context.arc(screen.x, screen.y, radius * 1.6, 0, Math.PI * 2);
+            context.stroke();
+            context.setLineDash([]);
+          }
+
+          bodyScreenRef.current.push({
+            x: screen.x,
+            y: screen.y,
+            radius,
+            body,
+          });
+        });
+      }
+
+      if (!selectedBody && hoveredIdRef.current) {
         const hoveredEntry = bodyScreenRef.current.find((entry) => entry.body.id === hoveredIdRef.current);
         if (hoveredEntry) {
           context.fillStyle = "rgba(255, 255, 255, 0.84)";
@@ -924,25 +1071,42 @@ export function SolarSystemExperience() {
   return (
     <main className={styles.shell}>
       <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
+      {blackHoleVisible ? (
+        <div className={styles.blackHoleOverlay}>
+          <div className={styles.blackHoleScene}>{blackHoleScene}</div>
+          <div className={styles.blackHoleCaption}>
+            <span className={styles.blackHoleLabel}>Singularity</span>
+            <span className={styles.blackHoleHint}>Both fists to close</span>
+          </div>
+        </div>
+      ) : null}
       <div className={styles.overlay}>
         <Link href="/" className={styles.backLink}>
           Back to dock
         </Link>
 
-        <section className={styles.hero}>
-          <p className={styles.eyebrow}>Solar Project</p>
-          <h1 className={styles.title}>Solar Orrery</h1>
-          <p className={styles.copy}>
-            Procedural planets orbit the sun in real time. Right pinch drags the field, left open-hand motion zooms without snap-back, and left pinch selects a body.
-          </p>
-          <div className={styles.chipRow}>
-            <span className={styles.chip}>All planets + key moons</span>
-            <span className={styles.chip}>No external texture files</span>
-            <span className={styles.chip}>Gesture atlas</span>
-          </div>
-        </section>
+        {selected ? (
+          <section className={styles.focusBadge}>
+            <p className={styles.eyebrow}>Surface Focus</p>
+            <h1 className={styles.focusTitle}>{selected.name}</h1>
+            <p className={styles.copy}>{selected.surfaceFocus}</p>
+          </section>
+        ) : (
+          <section className={styles.hero}>
+            <p className={styles.eyebrow}>Solar Project</p>
+            <h1 className={styles.title}>Solar Orrery</h1>
+            <p className={styles.copy}>
+              Procedural planets orbit the sun in real time. Right pinch drags the field, left open-hand motion zooms without snap-back, and left pinch selects a body.
+            </p>
+            <div className={styles.chipRow}>
+              <span className={styles.chip}>All planets + key moons</span>
+              <span className={styles.chip}>No external texture files</span>
+              <span className={styles.chip}>Gesture atlas</span>
+            </div>
+          </section>
+        )}
 
-        <aside className={styles.detailCard}>
+        <aside className={`${styles.detailCard} ${selected ? styles.detailCardFocused : ""}`}>
           {selected ? (
             <>
               <p className={styles.detailEyebrow}>
@@ -953,7 +1117,15 @@ export function SolarSystemExperience() {
               <div className={styles.detailMeta}>
                 <span className={styles.metaPill}>{selected.atmosphereLabel}</span>
                 <span className={styles.metaPill}>{selected.moons.length} major moons</span>
-                <span className={styles.metaPill}>Live orbit</span>
+                <span className={styles.metaPill}>Zoom out to return</span>
+              </div>
+              <div className={styles.featureList}>
+                {selected.traits.map((trait) => (
+                  <div key={trait} className={styles.featureItem}>
+                    <span className={styles.featureBullet} aria-hidden="true" />
+                    <span className={styles.featureCopy}>{trait}</span>
+                  </div>
+                ))}
               </div>
               {selected.moons.length > 0 ? (
                 <div className={styles.moonList}>
@@ -986,7 +1158,9 @@ export function SolarSystemExperience() {
           <span className={styles.hint}>Right pinch + move: drag view</span>
           <span className={styles.hint}>Left hand open + raise/lower: zoom</span>
           <span className={styles.hint}>Left pinch on body: focus</span>
-          <span className={styles.hint}>Both fists: return to menu</span>
+          <span className={styles.hint}>Zoom out far enough: return to system</span>
+          <span className={styles.hint}>Open palms together: black hole</span>
+          <span className={styles.hint}>Both fists: close singularity / return to menu</span>
         </div>
       </div>
 

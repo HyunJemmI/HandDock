@@ -5,8 +5,8 @@
   "description": "Portal hub for HandDock projects.",
   "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "node ./scripts/clean-dist.mjs dev && next dev",
+    "build": "node ./scripts/clean-dist.mjs build && next build",
     "start": "next start",
     "lint": "next lint"
   },

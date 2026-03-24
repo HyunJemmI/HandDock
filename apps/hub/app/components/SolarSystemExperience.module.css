@@ -15,6 +15,44 @@
   height: 100%;
 }
 
+.blackHoleOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: radial-gradient(circle at center, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.68));
+}
+
+.blackHoleScene {
+  position: absolute;
+  inset: 0;
+}
+
+.blackHoleCaption {
+  position: absolute;
+  left: 24px;
+  bottom: 24px;
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(12px);
+}
+
+.blackHoleLabel {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.9rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.blackHoleHint {
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 0.76rem;
+}
+
 .overlay {
   position: relative;
   z-index: 2;
@@ -37,6 +75,19 @@
   max-width: 360px;
 }
 
+.focusBadge {
+  position: absolute;
+  left: 24px;
+  top: 84px;
+  width: min(34vw, 420px);
+  padding: 20px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(10, 10, 16, 0.6), rgba(10, 10, 16, 0.18));
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(12px);
+}
+
 .eyebrow {
   margin: 0;
   color: rgba(255, 184, 122, 0.84);
@@ -50,6 +101,13 @@
   margin: 12px 0 0;
   color: rgba(255, 255, 255, 0.95);
   font-size: clamp(2.4rem, 4vw, 4.2rem);
+  letter-spacing: -0.06em;
+}
+
+.focusTitle {
+  margin: 10px 0 0;
+  color: rgba(255, 255, 255, 0.95);
+  font-size: clamp(2.2rem, 3.5vw, 3.6rem);
   letter-spacing: -0.06em;
 }
 
@@ -88,6 +146,14 @@
   backdrop-filter: blur(18px);
 }
 
+.detailCardFocused {
+  top: 24px;
+  bottom: 24px;
+  width: min(40vw, 520px);
+  padding: 28px 28px 24px;
+  overflow: auto;
+}
+
 .detailEyebrow {
   margin: 0;
   color: rgba(255, 188, 124, 0.86);
@@ -115,6 +181,38 @@
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 16px;
+}
+
+.featureList {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.featureItem {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.featureBullet {
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: rgba(255, 186, 122, 0.92);
+  box-shadow: 0 0 18px rgba(255, 186, 122, 0.45);
+}
+
+.featureCopy {
+  color: rgba(255, 255, 255, 0.72);
+  line-height: 1.6;
+  font-size: 0.9rem;
 }
 
 .metaPill {
@@ -276,9 +374,20 @@
     max-width: calc(100vw - 48px);
   }
 
+  .focusBadge {
+    width: calc(100vw - 48px);
+  }
+
   .detailCard {
     top: auto;
     bottom: 180px;
+  }
+
+  .detailCardFocused {
+    width: calc(100vw - 48px);
+    top: auto;
+    bottom: 180px;
+    max-height: 42vh;
   }
 
   .hintBar {
@@ -289,6 +398,7 @@
 @media (max-width: 720px) {
   .backLink,
   .hero,
+  .focusBadge,
   .detailCard,
   .hintBar {
     left: 14px;
@@ -298,6 +408,11 @@
 
   .detailCard {
     bottom: 164px;
+  }
+
+  .detailCardFocused {
+    bottom: 164px;
+    max-height: 40vh;
   }
 
   .statusDock {
