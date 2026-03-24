@@ -13,13 +13,33 @@ type TrackingState = {
   hoveredSlug: string | null;
 };
 
+type VisionModule = {
+  FilesetResolver: {
+    forVisionTasks: (path: string) => Promise<unknown>;
+  };
+  HandLandmarker: {
+    createFromOptions: (
+      resolver: unknown,
+      options: Record<string, unknown>,
+    ) => Promise<{
+      close: () => void;
+      detectForVideo: (
+        video: HTMLVideoElement,
+        now: number,
+      ) => { landmarks: Array<Array<Landmark>> };
+    }>;
+  };
+};
+
 const HOLD_MS = 280;
 const DOCK_VISIBILITY_MS = 2200;
 const POINTER_SMOOTHING = 0.34;
 const PINCH_THRESHOLD = 0.42;
+const FINGERTIP_INDICES = [4, 8, 12, 16, 20] as const;
+const FINGERTIP_COLORS = ["#f7c66a", "#8af4dd", "#f4f7fb", "#f39bd8", "#78b9ff"];
 const loadVisionModule = new Function("moduleUrl", "return import(moduleUrl)") as (
   moduleUrl: string,
-) => Promise<unknown>;
+) => Promise<VisionModule>;
 
 function distance(a: Landmark, b: Landmark) {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -27,6 +47,10 @@ function distance(a: Landmark, b: Landmark) {
 
 function getHandScale(points: Landmark[]) {
   return distance(points[5], points[17]) || 1;
+}
+
+function getPrimaryHand(hands: Landmark[][]) {
+  return [...hands].sort((left, right) => getHandScale(right) - getHandScale(left))[0];
 }
 
 function isFingerExtended(points: Landmark[], tipIndex: number, pipIndex: number) {
@@ -55,6 +79,62 @@ function isPinching(points: Landmark[]) {
   return pinchDistance < PINCH_THRESHOLD;
 }
 
+function drawFingertipPreview(
+  canvas: HTMLCanvasElement | null,
+  video: HTMLVideoElement | null,
+  hands: Landmark[][],
+  primaryHand: Landmark[] | undefined,
+  pinching: boolean,
+) {
+  if (!canvas || !video) {
+    return;
+  }
+
+  if (!video.videoWidth || !video.videoHeight) {
+    return;
+  }
+
+  if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+  }
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return;
+  }
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+
+  hands.forEach((hand, handIndex) => {
+    FINGERTIP_INDICES.forEach((tipIndex, tipOrder) => {
+      const point = hand[tipIndex];
+      const x = point.x * canvas.width;
+      const y = point.y * canvas.height;
+
+      context.beginPath();
+      context.fillStyle = FINGERTIP_COLORS[tipOrder];
+      context.arc(x, y, hand === primaryHand && tipIndex === 8 ? 12 : 8, 0, Math.PI * 2);
+      context.fill();
+
+      context.beginPath();
+      context.lineWidth = handIndex === 0 ? 2.5 : 1.5;
+      context.strokeStyle = "rgba(0, 0, 0, 0.65)";
+      context.arc(x, y, hand === primaryHand && tipIndex === 8 ? 14 : 10, 0, Math.PI * 2);
+      context.stroke();
+    });
+  });
+
+  if (primaryHand) {
+    context.beginPath();
+    context.moveTo(primaryHand[4].x * canvas.width, primaryHand[4].y * canvas.height);
+    context.lineTo(primaryHand[8].x * canvas.width, primaryHand[8].y * canvas.height);
+    context.lineWidth = 4;
+    context.strokeStyle = pinching ? "rgba(247, 198, 106, 0.92)" : "rgba(255, 255, 255, 0.45)";
+    context.stroke();
+  }
+}
+
 export function HandDockHome() {
   const [state, setState] = useState<TrackingState>({
     gesture: "searching",
@@ -72,6 +152,7 @@ export function HandDockHome() {
   const frameRef = useRef<number | null>(null);
   const dockTimerRef = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const hasPointerRef = useRef(false);
 
   useEffect(() => {
@@ -127,42 +208,30 @@ export function HandDockHome() {
       videoRef.current.playsInline = true;
       await videoRef.current.play().catch(() => undefined);
 
-      const vision = (await loadVisionModule(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm",
-      )) as {
-        FilesetResolver: {
-          forVisionTasks: (path: string) => Promise<unknown>;
-        };
-        HandLandmarker: {
-          createFromOptions: (
-            resolver: unknown,
-            options: Record<string, unknown>,
-          ) => Promise<{
-            close: () => void;
-            detectForVideo: (
-              video: HTMLVideoElement,
-              now: number,
-            ) => { landmarks: Array<Array<Landmark>> };
-          }>;
-        };
-      };
+      const vision = await loadVisionModule("/vendor/mediapipe/vision_bundle.mjs");
+      const resolver = await vision.FilesetResolver.forVisionTasks("/vendor/mediapipe");
 
-      const resolver = await vision.FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm",
-      );
-
-      handLandmarker = await vision.HandLandmarker.createFromOptions(resolver, {
-        baseOptions: {
-          modelAssetPath:
-            "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-          delegate: "GPU",
-        },
-        runningMode: "VIDEO",
-        numHands: 1,
-      });
+      try {
+        handLandmarker = await vision.HandLandmarker.createFromOptions(resolver, {
+          baseOptions: {
+            modelAssetPath: "/vendor/mediapipe/hand_landmarker.task",
+            delegate: "GPU",
+          },
+          runningMode: "VIDEO",
+          numHands: 2,
+        });
+      } catch {
+        handLandmarker = await vision.HandLandmarker.createFromOptions(resolver, {
+          baseOptions: {
+            modelAssetPath: "/vendor/mediapipe/hand_landmarker.task",
+          },
+          runningMode: "VIDEO",
+          numHands: 2,
+        });
+      }
 
       if (!mounted) {
-        handLandmarker.close();
+        handLandmarker?.close();
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
@@ -173,9 +242,11 @@ export function HandDockHome() {
         }
 
         const result = handLandmarker.detectForVideo(videoRef.current, performance.now());
-        const hand = result.landmarks[0];
+        const hands = result.landmarks;
+        const hand = getPrimaryHand(hands);
 
         if (!hand) {
+          drawFingertipPreview(previewCanvasRef.current, videoRef.current, [], undefined, false);
           holdRef.current = { slug: null, startedAt: 0 };
           activatedRef.current = null;
           setState((current) => ({
@@ -219,6 +290,7 @@ export function HandDockHome() {
 
         const palmOpen = isOpenPalm(hand);
         const pinching = isPinching(hand);
+        drawFingertipPreview(previewCanvasRef.current, videoRef.current, hands, hand, pinching);
         if (palmOpen) {
           revealDock();
         }
@@ -319,7 +391,10 @@ export function HandDockHome() {
         <div className={styles.reticleCore} />
       </div>
 
-      <video ref={videoRef} className={styles.hiddenVideo} autoPlay muted playsInline />
+      <div className={styles.previewDock}>
+        <video ref={videoRef} className={styles.previewVideo} autoPlay muted playsInline />
+        <canvas ref={previewCanvasRef} className={styles.previewCanvas} />
+      </div>
     </main>
   );
 }
