@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import shellStyles from "../page.module.css";
 import styles from "./WallClExperience.module.css";
-import { WorkGestureBack } from "./WorkGestureBack";
 
 type Point = {
   x: number;
@@ -15,8 +15,6 @@ type RobotPose = {
   bodyLeft: Point;
   bodyRight: Point;
   center: Point;
-  phaseLabel: string;
-  contactLabel: string;
   cycleIndex: number;
   cycleProgress: number;
   travelMeters: number;
@@ -32,73 +30,6 @@ const END_ANGLE = PI * 2 - getAngle(LEN_ARM, LEN_BODY / 2, DIST / 2);
 const CYCLE_SECONDS = 8.8;
 const WALL_ROW_SPACING = 62;
 const HOLD_COLUMNS = [188, 188 + DIST / 2, 188 + DIST];
-
-const HARDWARE_BLOCKS = [
-  {
-    title: "좌우 구동 암",
-    description: "Adafruit PWM 보드로 제어되는 듀얼 서보 구동 암. climb-robot의 arm angle 스윙 패턴을 기준으로 예상.",
-  },
-  {
-    title: "접촉 패드 / 전자석",
-    description: "원본 Arduino 코드의 `magnetL`, `magnetR`, `magnetC` 구성을 참고해 좌우 접점과 중앙 보조 접점을 배치.",
-  },
-  {
-    title: "센터 프레임",
-    description: "배터리, MCU, IMU, 자석 전원 분배를 수용하는 브리지형 알루미늄 바디. 벽면에 평행하게 하중을 분산한다.",
-  },
-  {
-    title: "압착 / 흡착 보조",
-    description: "표면 재질에 따라 전자석만으로 부족할 수 있어, 실사용 추정안에는 얇은 진공 패드 또는 고무 마찰패드를 병행한다.",
-  },
-];
-
-const CONTROL_STACK = [
-  "PCA9685 PWM Driver",
-  "Dual Servo Shoulder Joints",
-  "STM32 / Arduino-class MCU",
-  "IMU + Wall Normal Estimator",
-  "Battery + Magnet Driver",
-];
-
-const STORY_BLOCKS = [
-  {
-    title: "대회 준비 제약",
-    description:
-      "코로나 시기라 동아리방 사용이 막혀 원룸 공유와 후반 3주 Airbnb 공간에서 준비했다. 제한된 공간에서 조립, 테스트, 수정이 반복됐다.",
-  },
-  {
-    title: "짧은 준비 기간",
-    description:
-      "학기 중 대회였고 아두이노, C, 회로, 센서 경험이 거의 없는 상태에서 바로 구현 단계로 들어가야 했다. 이론보다 빠른 실험과 실패가 우선이었다.",
-  },
-  {
-    title: "역할 분담",
-    description:
-      "회로 설계, C 코딩, 3D 프린터 활용으로 역할을 나눴고, 여기서는 특히 3D 프린팅 기반 경량화와 강성 확보 전략을 강조한다.",
-  },
-];
-
-const DECISION_PATH = [
-  "아이디어 120여 개를 모아 최종 주제를 추렸다.",
-  "팬 흡착식은 모터와 전압 제약으로 비용 부담이 커서 제외했다.",
-  "점성 방식은 제어 수단이 마땅치 않아 제외했다.",
-  "전자석은 철 구조물 제약이 있지만 전원 on/off로 부착력을 제어할 수 있어 채택했다.",
-  "추후 확장 아이디어로 자석 캐터필러 방식도 고려 대상에 남겼다.",
-];
-
-const DESIGN_NOTES = [
-  "다리 단면을 T자 형태로 설계해 얇은 재질에서도 강도를 올렸다.",
-  "1mm씩 증분 테스트한 결과, 5mm가 무게 대비 강도 효율이 가장 좋았다.",
-  "전자석 장착부는 단순 관통이 아니라 얇은 지지 구조를 추가해 받쳐주도록 설계했다.",
-  "초기 3-leg 회전형은 무겁고 이동 효율이 낮아 2-leg 교차 고정형으로 변경했다.",
-  "전자석 회전 저항은 고무줄과 유격으로 줄여 정지마찰을 운동마찰 상태로 넘기게 했다.",
-];
-
-const RISK_NOTES = [
-  "역기전력 때문에 다이오드를 넣었지만 발열과 연기가 발생해 제거하고 테스트를 지속했다.",
-  "스텝 모터 3개, 아두이노, 센서, 전자석으로 인해 기본 무게가 높아 프레임 경량화가 필수였다.",
-  "두 접점 사이 거리를 일정하게 유지하지 않으면 자석이 밀리며 추락 가능성이 커진다.",
-];
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -180,8 +111,6 @@ function computePose(seconds: number): RobotPose {
         x: (bodyLeft.x + bodyRight.x) / 2,
         y: (bodyLeft.y + bodyRight.y) / 2,
       },
-      phaseLabel: "Body advance",
-      contactLabel: "좌우 접점 고정",
       cycleIndex,
       cycleProgress: eased,
       travelMeters: 0.24 + liftTravel,
@@ -209,8 +138,6 @@ function computePose(seconds: number): RobotPose {
         x: (bodyLeft.x + bodyRight.x) / 2,
         y: (bodyLeft.y + bodyRight.y) / 2,
       },
-      phaseLabel: "Upper re-anchor",
-      contactLabel: "바디 스윙 / 자세 복원",
       cycleIndex,
       cycleProgress: eased,
       travelMeters: 0.24 + liftTravel,
@@ -234,8 +161,6 @@ function computePose(seconds: number): RobotPose {
       x: (bodyLeft.x + bodyRight.x) / 2,
       y: (bodyLeft.y + bodyRight.y) / 2,
     },
-    phaseLabel: "Anchor recovery",
-    contactLabel: "중앙 접점 유지",
     cycleIndex,
     cycleProgress: eased,
     travelMeters: 0.24 + liftTravel,
@@ -271,246 +196,120 @@ export function WallClExperience() {
   const pose = useMemo(() => computePose(seconds), [seconds]);
   const wallRows = useMemo(
     () =>
-      Array.from({ length: 12 }, (_, index) => {
-        const y = -40 + index * WALL_ROW_SPACING + pose.wallShift;
-        return {
-          id: `row-${index}`,
-          y,
-        };
-      }),
+      Array.from({ length: 12 }, (_, index) => ({
+        id: `row-${index}`,
+        y: -40 + index * WALL_ROW_SPACING + pose.wallShift,
+      })),
     [pose.wallShift],
   );
 
   return (
     <main className={styles.shell}>
-      <WorkGestureBack />
+      <a href="/" className={shellStyles.exitButton}>
+        Exit
+      </a>
 
-      <div className={styles.grid}>
-        <section className={styles.stageCard}>
-          <div className={styles.headerRow}>
-            <div>
-              <p className={styles.eyebrow}>WallCL</p>
-              <h1 className={styles.title}>Wall-climbing robot gait simulator</h1>
+      <section className={styles.stageOnly}>
+        <div className={styles.headerRow}>
+          <div>
+            <p className={styles.eyebrow}>WallCL</p>
+            <h1 className={styles.title}>Progress</h1>
+          </div>
+          <div className={styles.metricStrip}>
+            <div className={styles.metricCard}>
+              <span className={styles.metricLabel}>Cycle</span>
+              <strong>{pose.cycleIndex + 1}</strong>
             </div>
-            <div className={styles.metricStrip}>
-              <div className={styles.metricCard}>
-                <span className={styles.metricLabel}>Cycle</span>
-                <strong>{pose.cycleIndex + 1}</strong>
-              </div>
-              <div className={styles.metricCard}>
-                <span className={styles.metricLabel}>Progress</span>
-                <strong>{formatPercent(pose.cycleProgress)}</strong>
-              </div>
-              <div className={styles.metricCard}>
-                <span className={styles.metricLabel}>Height</span>
-                <strong>{pose.travelMeters.toFixed(2)} m</strong>
-              </div>
-              <div className={styles.metricCard}>
-                <span className={styles.metricLabel}>Ideas</span>
-                <strong>120+</strong>
-              </div>
-              <div className={styles.metricCard}>
-                <span className={styles.metricLabel}>Frame</span>
-                <strong>5 mm</strong>
-              </div>
+            <div className={styles.metricCard}>
+              <span className={styles.metricLabel}>Progress</span>
+              <strong>{formatPercent(pose.cycleProgress)}</strong>
+            </div>
+            <div className={styles.metricCard}>
+              <span className={styles.metricLabel}>Height</span>
+              <strong>{pose.travelMeters.toFixed(2)} m</strong>
             </div>
           </div>
+        </div>
 
-          <div className={styles.stageCanvas}>
-            <svg viewBox="0 0 760 620" className={styles.svg} aria-label="Wall climbing robot simulation">
-              <defs>
-                <linearGradient id="wallGradient" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#101010" />
-                  <stop offset="100%" stopColor="#020202" />
-                </linearGradient>
-                <linearGradient id="robotGlow" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#f0c78c" />
-                  <stop offset="100%" stopColor="#ffffff" />
-                </linearGradient>
-              </defs>
+        <div className={styles.progressRail} aria-hidden="true">
+          <div className={styles.progressValue} style={{ width: formatPercent(pose.cycleProgress) }} />
+        </div>
 
-              <rect x="30" y="42" width="700" height="536" rx="34" fill="url(#wallGradient)" />
-              {wallRows.map((row) =>
-                HOLD_COLUMNS.map((column, columnIndex) => {
-                  const isLeftActive = columnIndex === 0 && Math.abs(row.y - pose.leftAnchor.y) < 26;
-                  const isCenterActive =
-                    columnIndex === 1 && pose.phaseLabel === "Anchor recovery" && Math.abs(row.y - pose.center.y) < 28;
-                  const isRightActive = columnIndex === 2 && Math.abs(row.y - pose.rightAnchor.y) < 26;
-                  const isActive = isLeftActive || isCenterActive || isRightActive;
+        <div className={styles.stageCanvas}>
+          <svg viewBox="0 0 760 620" className={styles.svg} aria-label="Wall climbing robot simulation">
+            <defs>
+              <linearGradient id="wallGradient" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#101010" />
+                <stop offset="100%" stopColor="#020202" />
+              </linearGradient>
+              <linearGradient id="robotGlow" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="#f0c78c" />
+                <stop offset="100%" stopColor="#ffffff" />
+              </linearGradient>
+            </defs>
 
-                  return (
-                    <g key={`${row.id}-${column}`}>
-                      <circle
-                        cx={column}
-                        cy={row.y}
-                        r={isActive ? 14 : 9}
-                        fill={isActive ? "#f0c78c" : "rgba(255,255,255,0.08)"}
-                        stroke={isActive ? "rgba(255,255,255,0.76)" : "rgba(255,255,255,0.1)"}
-                        strokeWidth={isActive ? 2 : 1}
-                      />
-                      <circle
-                        cx={column}
-                        cy={row.y}
-                        r={isActive ? 28 : 0}
-                        fill={isActive ? "rgba(240,199,140,0.10)" : "transparent"}
-                      />
-                    </g>
-                  );
-                }),
-              )}
+            <rect x="30" y="42" width="700" height="536" rx="34" fill="url(#wallGradient)" />
+            {wallRows.map((row) =>
+              HOLD_COLUMNS.map((column, columnIndex) => {
+                const isLeftActive = columnIndex === 0 && Math.abs(row.y - pose.leftAnchor.y) < 26;
+                const isCenterActive = columnIndex === 1 && Math.abs(row.y - pose.center.y) < 28;
+                const isRightActive = columnIndex === 2 && Math.abs(row.y - pose.rightAnchor.y) < 26;
+                const isActive = isLeftActive || isCenterActive || isRightActive;
 
-              <path
-                d={`M ${pose.leftAnchor.x} ${pose.leftAnchor.y} L ${pose.bodyLeft.x} ${pose.bodyLeft.y}`}
-                stroke="url(#robotGlow)"
-                strokeWidth="8"
-                strokeLinecap="round"
-              />
-              <path
-                d={`M ${pose.rightAnchor.x} ${pose.rightAnchor.y} L ${pose.bodyRight.x} ${pose.bodyRight.y}`}
-                stroke="url(#robotGlow)"
-                strokeWidth="8"
-                strokeLinecap="round"
-              />
-              <path
-                d={`M ${pose.bodyLeft.x} ${pose.bodyLeft.y} L ${pose.bodyRight.x} ${pose.bodyRight.y}`}
-                stroke="rgba(255,255,255,0.92)"
-                strokeWidth="13"
-                strokeLinecap="round"
-              />
-              <rect
-                x={pose.center.x - 32}
-                y={pose.center.y - 22}
-                width="64"
-                height="44"
-                rx="16"
-                fill="rgba(10,10,10,0.94)"
-                stroke="rgba(255,255,255,0.12)"
-              />
-              <circle cx={pose.leftAnchor.x} cy={pose.leftAnchor.y} r="15" fill="#111" stroke="#f0c78c" strokeWidth="3" />
-              <circle cx={pose.rightAnchor.x} cy={pose.rightAnchor.y} r="15" fill="#111" stroke="#f0c78c" strokeWidth="3" />
-              <circle cx={pose.center.x} cy={pose.center.y} r="11" fill="#f0c78c" opacity="0.88" />
+                return (
+                  <g key={`${row.id}-${column}`}>
+                    <circle
+                      cx={column}
+                      cy={row.y}
+                      r={isActive ? 14 : 9}
+                      fill={isActive ? "#f0c78c" : "rgba(255,255,255,0.08)"}
+                      stroke={isActive ? "rgba(255,255,255,0.76)" : "rgba(255,255,255,0.1)"}
+                      strokeWidth={isActive ? 2 : 1}
+                    />
+                    <circle
+                      cx={column}
+                      cy={row.y}
+                      r={isActive ? 28 : 0}
+                      fill={isActive ? "rgba(240,199,140,0.10)" : "transparent"}
+                    />
+                  </g>
+                );
+              }),
+            )}
 
-              <text x="62" y="86" className={styles.svgLabel}>
-                CONTACT GRID
-              </text>
-              <text x="62" y="114" className={styles.svgCopy}>
-                climb-robot의 2-arm kinematics를 브라우저 SVG 시뮬레이션으로 재구성
-              </text>
-            </svg>
-          </div>
-
-          <div className={styles.footerGrid}>
-            <div className={styles.footerCard}>
-              <span className={styles.footerLabel}>현재 동작</span>
-              <strong>{pose.phaseLabel}</strong>
-              <p>{pose.contactLabel}</p>
-            </div>
-            <div className={styles.footerCard}>
-              <span className={styles.footerLabel}>예상 제어</span>
-              <strong>Servo + Magnet sequence</strong>
-              <p>좌우 암 각도와 중앙 자석 락을 번갈아 사용해 body를 위로 전진시킨다.</p>
-            </div>
-            <div className={styles.footerCard}>
-              <span className={styles.footerLabel}>하중 해석</span>
-              <strong>Bridge frame</strong>
-              <p>벽면 방향 하중은 중앙 프레임에 모으고, 양쪽 암은 접점 교대와 자세 복원에 집중한다.</p>
-            </div>
-          </div>
-
-          <div className={styles.storyGrid}>
-            {STORY_BLOCKS.map((block) => (
-              <article key={block.title} className={styles.storyCard}>
-                <span className={styles.storyLabel}>Project Context</span>
-                <h3>{block.title}</h3>
-                <p>{block.description}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <aside className={styles.hardwareCard}>
-          <div className={styles.hardwareHeader}>
-            <p className={styles.eyebrow}>Predicted Hardware</p>
-            <h2 className={styles.subtitle}>예상 하드웨어 디자인</h2>
-          </div>
-
-          <svg viewBox="0 0 420 320" className={styles.hardwareSvg} aria-label="Predicted wall climbing robot hardware">
-            <rect x="150" y="136" width="120" height="48" rx="18" fill="rgba(12,12,12,0.94)" stroke="rgba(255,255,255,0.16)" />
-            <rect x="170" y="118" width="80" height="18" rx="9" fill="rgba(240,199,140,0.18)" stroke="rgba(240,199,140,0.56)" />
-            <line x1="150" y1="160" x2="96" y2="110" stroke="rgba(255,255,255,0.88)" strokeWidth="8" strokeLinecap="round" />
-            <line x1="270" y1="160" x2="324" y2="110" stroke="rgba(255,255,255,0.88)" strokeWidth="8" strokeLinecap="round" />
-            <circle cx="96" cy="110" r="24" fill="#090909" stroke="#f0c78c" strokeWidth="4" />
-            <circle cx="324" cy="110" r="24" fill="#090909" stroke="#f0c78c" strokeWidth="4" />
-            <circle cx="210" cy="196" r="18" fill="rgba(240,199,140,0.88)" />
-            <line x1="210" y1="184" x2="210" y2="232" stroke="rgba(240,199,140,0.62)" strokeWidth="4" />
-            <line x1="210" y1="232" x2="120" y2="272" stroke="rgba(255,255,255,0.16)" strokeWidth="2" />
-            <line x1="96" y1="110" x2="42" y2="64" stroke="rgba(255,255,255,0.16)" strokeWidth="2" />
-            <line x1="324" y1="110" x2="382" y2="64" stroke="rgba(255,255,255,0.16)" strokeWidth="2" />
-            <line x1="170" y1="126" x2="126" y2="40" stroke="rgba(255,255,255,0.16)" strokeWidth="2" />
-            <text x="18" y="60" className={styles.calloutLabel}>
-              magnetic pad
-            </text>
-            <text x="334" y="60" className={styles.calloutLabel}>
-              servo shoulder
-            </text>
-            <text x="74" y="290" className={styles.calloutLabel}>
-              center support magnet
-            </text>
-            <text x="70" y="34" className={styles.calloutLabel}>
-              battery + controller bridge
-            </text>
+            <path
+              d={`M ${pose.leftAnchor.x} ${pose.leftAnchor.y} L ${pose.bodyLeft.x} ${pose.bodyLeft.y}`}
+              stroke="url(#robotGlow)"
+              strokeWidth="8"
+              strokeLinecap="round"
+            />
+            <path
+              d={`M ${pose.rightAnchor.x} ${pose.rightAnchor.y} L ${pose.bodyRight.x} ${pose.bodyRight.y}`}
+              stroke="url(#robotGlow)"
+              strokeWidth="8"
+              strokeLinecap="round"
+            />
+            <path
+              d={`M ${pose.bodyLeft.x} ${pose.bodyLeft.y} L ${pose.bodyRight.x} ${pose.bodyRight.y}`}
+              stroke="rgba(255,255,255,0.92)"
+              strokeWidth="13"
+              strokeLinecap="round"
+            />
+            <rect
+              x={pose.center.x - 32}
+              y={pose.center.y - 22}
+              width="64"
+              height="44"
+              rx="16"
+              fill="rgba(10,10,10,0.94)"
+              stroke="rgba(255,255,255,0.12)"
+            />
+            <circle cx={pose.leftAnchor.x} cy={pose.leftAnchor.y} r="15" fill="#111" stroke="#f0c78c" strokeWidth="3" />
+            <circle cx={pose.rightAnchor.x} cy={pose.rightAnchor.y} r="15" fill="#111" stroke="#f0c78c" strokeWidth="3" />
+            <circle cx={pose.center.x} cy={pose.center.y} r="11" fill="#f0c78c" opacity="0.88" />
           </svg>
-
-          <div className={styles.listBlock}>
-            {HARDWARE_BLOCKS.map((block) => (
-              <article key={block.title} className={styles.featureCard}>
-                <h3>{block.title}</h3>
-                <p>{block.description}</p>
-              </article>
-            ))}
-          </div>
-
-          <div className={styles.storyPanel}>
-            <div className={styles.panelBlock}>
-              <span className={styles.stackLabel}>Concept Decisions</span>
-              <ul className={styles.bulletList}>
-                {DECISION_PATH.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-
-            <div className={styles.panelBlock}>
-              <span className={styles.stackLabel}>3D Printing / Mechanical</span>
-              <ul className={styles.bulletList}>
-                {DESIGN_NOTES.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-
-            <div className={styles.panelBlock}>
-              <span className={styles.stackLabel}>Electrical Risks</span>
-              <ul className={styles.bulletList}>
-                {RISK_NOTES.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-
-          <div className={styles.stackBlock}>
-            <span className={styles.stackLabel}>Control Stack</span>
-            <div className={styles.stackPills}>
-              {CONTROL_STACK.map((item) => (
-                <span key={item} className={styles.stackPill}>
-                  {item}
-                </span>
-              ))}
-            </div>
-          </div>
-        </aside>
-      </div>
+        </div>
+      </section>
     </main>
   );
 }

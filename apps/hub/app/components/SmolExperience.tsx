@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import shellStyles from "../page.module.css";
 import styles from "./SmolExperience.module.css";
-import { WorkGestureBack } from "./WorkGestureBack";
 
 type SampleSpec = {
   id: string;
@@ -306,7 +306,9 @@ export function SmolExperience() {
 
   return (
     <main className={styles.shell}>
-      <WorkGestureBack />
+      <a href="/" className={shellStyles.exitButton}>
+        Exit
+      </a>
 
       <div className={styles.layout}>
         <section className={styles.hero}>

@@ -1,9 +1,4 @@
 import { notFound } from "next/navigation";
-import { BlackHoleScene } from "../../components/BlackHoleScene";
-import { NBVRoboticsExperience } from "../../components/NBVRoboticsExperience";
-import { SmolExperience } from "../../components/SmolExperience";
-import { SolarSystemExperience } from "../../components/SolarSystemExperience";
-import { WallClExperience } from "../../components/WallClExperience";
 import { WorkGestureBack } from "../../components/WorkGestureBack";
 import styles from "../../page.module.css";
 import { works } from "../../work-data";
@@ -25,18 +20,25 @@ export default async function WorkPage({
   }
 
   if (slug === "solar-orrery") {
+    const [{ SolarSystemExperience }, { BlackHoleScene }] = await Promise.all([
+      import("../../components/SolarSystemExperience"),
+      import("../../components/BlackHoleScene"),
+    ]);
     return <SolarSystemExperience blackHoleScene={<BlackHoleScene />} />;
   }
 
   if (slug === "nbv-robotics-lab") {
+    const { NBVRoboticsExperience } = await import("../../components/NBVRoboticsExperience");
     return <NBVRoboticsExperience />;
   }
 
   if (slug === "wall-cl") {
+    const { WallClExperience } = await import("../../components/WallClExperience");
     return <WallClExperience />;
   }
 
   if (slug === "smol") {
+    const { SmolExperience } = await import("../../components/SmolExperience");
     return <SmolExperience />;
   }
 
