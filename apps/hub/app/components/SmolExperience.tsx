@@ -16,6 +16,16 @@ type SampleSpec = {
   recoveryBase: number;
 };
 
+type TrackPoint = {
+  x: number;
+  y: number;
+};
+
+type TrackPose = {
+  point: TrackPoint;
+  angle: number;
+};
+
 const SAMPLES: SampleSpec[] = [
   {
     id: "glare-lane",
@@ -45,7 +55,7 @@ const SAMPLES: SampleSpec[] = [
     dataSource: "Real to Synthetic",
     encoder: "MMD / CORAL / Adv",
     color: "#ff8a6b",
-    note: "feature alignment를 추가해 glare domain으로 넘어간 뒤에도 lane topology와 obstacle edge가 무너지지 않게 만든다.",
+    note: "feature alignment를 추가해 glare domain으로 넘어간 뒤에도 lane topology가 무너지지 않게 만든다.",
     target: "domain invariance",
     lineBase: 0.54,
     recoveryBase: 0.52,
@@ -56,7 +66,7 @@ const SAMPLES: SampleSpec[] = [
     dataSource: "On-device",
     encoder: "MobileNet / EfficientNet",
     color: "#8af4dd",
-    note: "최종 배치는 경량 backbone을 사용해 주행 중 실시간으로 line confidence를 유지하는 방향을 목표로 한다.",
+    note: "최종 배치는 경량 backbone을 사용해 주행 중 실시간으로 lane confidence를 유지하는 방향을 목표로 한다.",
     target: "edge robustness",
     lineBase: 0.6,
     recoveryBase: 0.56,
@@ -66,11 +76,11 @@ const SAMPLES: SampleSpec[] = [
 const METHOD_CARDS = [
   {
     title: "빛 번짐 데이터 생성",
-    copy: "StyleGAN, CycleGAN 계열 아이디어를 이용해 bloom과 glare가 들어간 synthetic frame을 만든다.",
+    copy: "StyleGAN, CycleGAN 계열 아이디어를 이용해 glare와 reflection이 강한 synthetic frame을 만든다.",
   },
   {
     title: "동일 정답 학습",
-    copy: "원본 이미지와 노이즈 이미지를 같은 GT로 지도해 line mask가 illumination보다 우선되게 만든다.",
+    copy: "원본 이미지와 노이즈 이미지를 같은 GT lane mask로 지도해 illumination보다 lane geometry가 우선되게 만든다.",
   },
   {
     title: "도메인 적응",
@@ -81,6 +91,35 @@ const METHOD_CARDS = [
     copy: "실시간 적용 단계에서는 EfficientNet, MobileNet 계열로 backbone을 축소한다.",
   },
 ];
+
+const BASE_TRACK_POINTS: TrackPoint[] = [
+  { x: 56, y: 178 },
+  { x: 72, y: 116 },
+  { x: 118, y: 72 },
+  { x: 194, y: 60 },
+  { x: 276, y: 78 },
+  { x: 316, y: 124 },
+  { x: 304, y: 184 },
+  { x: 248, y: 214 },
+  { x: 190, y: 220 },
+  { x: 142, y: 206 },
+  { x: 114, y: 176 },
+  { x: 126, y: 138 },
+  { x: 172, y: 112 },
+  { x: 226, y: 114 },
+  { x: 254, y: 144 },
+  { x: 246, y: 176 },
+  { x: 204, y: 190 },
+  { x: 160, y: 180 },
+  { x: 138, y: 152 },
+  { x: 126, y: 186 },
+];
+
+const TRACK_CYCLE_SECONDS = 10;
+const TRAINING_CYCLE_SECONDS = 14;
+const GLARE_CENTER_T = 0.28;
+const GLARE_WIDTH = 0.09;
+const GLARE_STATUS_WIDTH = 0.06;
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -102,6 +141,99 @@ function polarToCartesian(radius: number, angle: number) {
 
 function formatMetric(value: number) {
   return `${Math.round(value * 100)}%`;
+}
+
+function distance(a: TrackPoint, b: TrackPoint) {
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+function toPath(points: TrackPoint[], closed = true) {
+  const path = points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
+    .join(" ");
+  return closed ? `${path} Z` : path;
+}
+
+function wrappedDistance(a: number, b: number) {
+  const difference = Math.abs(a - b);
+  return Math.min(difference, 1 - difference);
+}
+
+function gaussianWeight(a: number, b: number, sigma: number) {
+  const delta = wrappedDistance(a, b);
+  return Math.exp(-((delta * delta) / (2 * sigma * sigma)));
+}
+
+function getNormal(points: TrackPoint[], index: number) {
+  const count = points.length;
+  const previous = points[(index - 1 + count) % count];
+  const next = points[(index + 1) % count];
+  const dx = next.x - previous.x;
+  const dy = next.y - previous.y;
+  const length = Math.hypot(dx, dy) || 1;
+
+  return {
+    x: -dy / length,
+    y: dx / length,
+  };
+}
+
+function offsetTrack(points: TrackPoint[], peakOffset: number) {
+  return points.map((point, index) => {
+    const ratio = index / points.length;
+    const weight = gaussianWeight(ratio, GLARE_CENTER_T, GLARE_WIDTH);
+    const normal = getNormal(points, index);
+
+    return {
+      x: point.x + normal.x * peakOffset * weight,
+      y: point.y + normal.y * peakOffset * weight,
+    };
+  });
+}
+
+function sampleTrack(points: TrackPoint[], t: number): TrackPose {
+  const wrapped = ((t % 1) + 1) % 1;
+  const segmentLengths = points.map((point, index) => distance(point, points[(index + 1) % points.length]));
+  const totalLength = segmentLengths.reduce((sum, length) => sum + length, 0);
+  let target = wrapped * totalLength;
+
+  for (let index = 0; index < points.length; index += 1) {
+    const start = points[index];
+    const end = points[(index + 1) % points.length];
+    const segmentLength = segmentLengths[index];
+
+    if (target <= segmentLength) {
+      const ratio = segmentLength === 0 ? 0 : target / segmentLength;
+      return {
+        point: {
+          x: start.x + (end.x - start.x) * ratio,
+          y: start.y + (end.y - start.y) * ratio,
+        },
+        angle: Math.atan2(end.y - start.y, end.x - start.x),
+      };
+    }
+
+    target -= segmentLength;
+  }
+
+  const fallback = points[0];
+  const next = points[1];
+
+  return {
+    point: fallback,
+    angle: Math.atan2(next.y - fallback.y, next.x - fallback.x),
+  };
+}
+
+function sampleTrackWindow(points: TrackPoint[], startT: number, span: number, steps: number) {
+  return Array.from({ length: steps }, (_, index) => {
+    const offset = steps === 1 ? 0 : (span * index) / (steps - 1);
+    return sampleTrack(points, startT + offset).point;
+  });
+}
+
+function toDegrees(angle: number) {
+  return (angle * 180) / Math.PI;
 }
 
 export function SmolExperience() {
@@ -129,20 +261,21 @@ export function SmolExperience() {
     };
   }, []);
 
-  const cycle = seconds / 14;
-  const cycleIndex = Math.floor(cycle);
-  const progress = easeInOut(cycle - cycleIndex);
-  const activeSample = SAMPLES[cycleIndex % SAMPLES.length];
-  const glareOffset = Math.sin(seconds * 0.84) * 28;
-  const similarity = 0.38 + progress * 0.54;
-  const domainGap = 0.62 - progress * 0.46;
-  const loss = 1.18 - progress * 0.82;
-  const lineConfidence = clamp01(activeSample.lineBase + progress * 0.34);
-  const recovery = clamp01(activeSample.recoveryBase + progress * 0.36);
-  const baselineLine = clamp01(0.18 + activeSample.lineBase * 0.4 - progress * 0.06);
+  const trainingCycle = seconds / TRAINING_CYCLE_SECONDS;
+  const trainingIndex = Math.floor(trainingCycle);
+  const trainingProgress = easeInOut(trainingCycle - trainingIndex);
+  const trackProgress = (seconds % TRACK_CYCLE_SECONDS) / TRACK_CYCLE_SECONDS;
+  const activeSample = SAMPLES[trainingIndex % SAMPLES.length];
+  const glareOffset = Math.sin(seconds * 0.84) * 18;
+  const similarity = 0.38 + trainingProgress * 0.54;
+  const domainGap = 0.62 - trainingProgress * 0.46;
+  const loss = 1.18 - trainingProgress * 0.82;
+  const lineConfidence = clamp01(activeSample.lineBase + trainingProgress * 0.34);
+  const recovery = clamp01(activeSample.recoveryBase + trainingProgress * 0.36);
+  const baselineLine = clamp01(0.18 + activeSample.lineBase * 0.4 - trainingProgress * 0.06);
   const positives = useMemo(() => {
     const anchor = polarToCartesian(42, -0.92);
-    const positive = polarToCartesian(56 - progress * 26, -0.18 + progress * 0.56);
+    const positive = polarToCartesian(56 - trainingProgress * 26, -0.18 + trainingProgress * 0.56);
     const negatives = [
       polarToCartesian(78, 1.92),
       polarToCartesian(74, 2.72),
@@ -151,7 +284,25 @@ export function SmolExperience() {
     ];
 
     return { anchor, positive, negatives };
-  }, [progress]);
+  }, [trainingProgress]);
+
+  const baselineTrack = useMemo(() => offsetTrack(BASE_TRACK_POINTS, 34), []);
+  const smolTrack = useMemo(() => offsetTrack(BASE_TRACK_POINTS, 8), []);
+  const baseTrackPath = useMemo(() => toPath(BASE_TRACK_POINTS), []);
+  const baselinePose = useMemo(() => sampleTrack(baselineTrack, trackProgress), [baselineTrack, trackProgress]);
+  const smolPose = useMemo(() => sampleTrack(smolTrack, trackProgress), [smolTrack, trackProgress]);
+  const baselineWindow = useMemo(
+    () => toPath(sampleTrackWindow(baselineTrack, trackProgress, 0.18, 14), false),
+    [baselineTrack, trackProgress],
+  );
+  const smolWindow = useMemo(
+    () => toPath(sampleTrackWindow(smolTrack, trackProgress, 0.18, 14), false),
+    [smolTrack, trackProgress],
+  );
+  const glareHotspot = useMemo(() => sampleTrack(BASE_TRACK_POINTS, GLARE_CENTER_T).point, []);
+  const glareOnCar = gaussianWeight(trackProgress, GLARE_CENTER_T, GLARE_STATUS_WIDTH);
+  const baselineStatus = glareOnCar > 0.42 ? "탈선" : "라인 흔들림";
+  const smolStatus = glareOnCar > 0.42 ? "정상 주행" : "안정 추종";
 
   return (
     <main className={styles.shell}>
@@ -162,10 +313,10 @@ export function SmolExperience() {
           <div className={styles.heroHeader}>
             <div>
               <p className={styles.eyebrow}>SMoL</p>
-              <h1 className={styles.title}>빛 노이즈에 강건한 line detection 학습 시각화</h1>
+              <h1 className={styles.title}>DeepRacer-style track 위 glare lane robustness demo</h1>
               <p className={styles.heroCopy}>
-                glare가 섞인 synthetic frame 생성, contrastive alignment, domain adaptation, 그리고 주행 line detection 복원까지
-                한 흐름으로 재구성한 브라우저 데모.
+                동일한 트랙과 동일한 차량을 10초 주기로 돌리면서, 특정 glare 구간에서 baseline 모델은 lane을 잘못 읽고
+                탈선하고 SMoL은 lane을 유지하는 비교 장면을 보여준다.
               </p>
             </div>
             <div className={styles.kpiRow}>
@@ -182,8 +333,8 @@ export function SmolExperience() {
                 <strong>{formatMetric(domainGap)}</strong>
               </div>
               <div className={styles.kpiCard}>
-                <span>Line recovery</span>
-                <strong>{formatMetric(recovery)}</strong>
+                <span>Track loop</span>
+                <strong>10.0 s</strong>
               </div>
             </div>
           </div>
@@ -193,7 +344,7 @@ export function SmolExperience() {
               <div className={styles.cardHeader}>
                 <div>
                   <p className={styles.cardEyebrow}>Training Pair</p>
-                  <h2>원본 이미지와 glare 이미지에 같은 GT를 부여</h2>
+                  <h2>원본 frame과 glare frame에 같은 lane GT 부여</h2>
                 </div>
                 <span className={styles.badge}>{activeSample.stage}</span>
               </div>
@@ -201,15 +352,13 @@ export function SmolExperience() {
               <div className={styles.pairGrid}>
                 <div className={styles.frameCard}>
                   <span className={styles.frameLabel}>Original</span>
-                  <svg viewBox="0 0 320 210" className={styles.sceneSvg} aria-label="Original driving image">
+                  <svg viewBox="0 0 320 210" className={styles.sceneSvg} aria-label="Original driving frame">
                     <rect x="0" y="0" width="320" height="210" rx="26" fill="#060606" />
                     <rect x="0" y="0" width="320" height="98" fill="rgba(22,32,54,0.36)" />
                     <circle cx="248" cy="54" r="26" fill="rgba(255,255,255,0.08)" />
                     <path d="M 64 210 L 130 96 L 190 96 L 258 210" fill="rgba(32,32,32,0.88)" />
                     <path d="M 108 210 L 146 96" stroke="rgba(255,255,255,0.65)" strokeWidth="4" strokeDasharray="8 10" />
                     <path d="M 212 210 L 174 96" stroke="rgba(255,255,255,0.65)" strokeWidth="4" strokeDasharray="8 10" />
-                    <rect x="182" y="126" width="52" height="28" rx="8" fill={activeSample.color} opacity="0.88" />
-                    <rect x="106" y="140" width="34" height="20" rx="8" fill="rgba(255,255,255,0.2)" />
                     <path d="M 104 190 L 150 110" stroke="rgba(122,163,255,0.9)" strokeWidth="5" />
                     <path d="M 216 190 L 170 110" stroke="rgba(122,163,255,0.9)" strokeWidth="5" />
                   </svg>
@@ -217,17 +366,34 @@ export function SmolExperience() {
 
                 <div className={styles.frameCard}>
                   <span className={styles.frameLabel}>Synthetic glare + reflection</span>
-                  <svg viewBox="0 0 320 210" className={styles.sceneSvg} aria-label="Augmented driving image">
+                  <svg viewBox="0 0 320 210" className={styles.sceneSvg} aria-label="Glare-augmented driving frame">
                     <rect x="0" y="0" width="320" height="210" rx="26" fill="#050505" />
                     <rect x="0" y="0" width="320" height="98" fill="rgba(34,38,72,0.4)" />
                     <circle cx={248 + glareOffset} cy="48" r="42" fill="rgba(255,236,190,0.28)" />
                     <circle cx={258 + glareOffset * 0.5} cy="56" r="64" fill="rgba(255,236,190,0.16)" />
                     <path d="M 64 210 L 130 96 L 190 96 L 258 210" fill="rgba(32,32,32,0.88)" />
-                    <path d="M 108 210 L 146 96" stroke={`rgba(255,255,255,${0.18 + progress * 0.44})`} strokeWidth="4" strokeDasharray="8 10" />
-                    <path d="M 212 210 L 174 96" stroke={`rgba(255,255,255,${0.16 + progress * 0.46})`} strokeWidth="4" strokeDasharray="8 10" />
-                    <rect x="182" y="126" width="52" height="28" rx="8" fill={activeSample.color} opacity={0.34 + progress * 0.56} />
-                    <path d="M 104 190 L 150 110" stroke={`rgba(122,163,255,${0.3 + progress * 0.62})`} strokeWidth="5" />
-                    <path d="M 216 190 L 170 110" stroke={`rgba(122,163,255,${0.26 + progress * 0.66})`} strokeWidth="5" />
+                    <path
+                      d="M 108 210 L 146 96"
+                      stroke={`rgba(255,255,255,${0.18 + trainingProgress * 0.44})`}
+                      strokeWidth="4"
+                      strokeDasharray="8 10"
+                    />
+                    <path
+                      d="M 212 210 L 174 96"
+                      stroke={`rgba(255,255,255,${0.16 + trainingProgress * 0.46})`}
+                      strokeWidth="4"
+                      strokeDasharray="8 10"
+                    />
+                    <path
+                      d="M 104 190 L 150 110"
+                      stroke={`rgba(122,163,255,${0.3 + trainingProgress * 0.62})`}
+                      strokeWidth="5"
+                    />
+                    <path
+                      d="M 216 190 L 170 110"
+                      stroke={`rgba(122,163,255,${0.26 + trainingProgress * 0.66})`}
+                      strokeWidth="5"
+                    />
                     {Array.from({ length: 18 }, (_, index) => (
                       <circle
                         key={index}
@@ -320,67 +486,132 @@ export function SmolExperience() {
         <section className={styles.inferenceCard}>
           <div className={styles.cardHeader}>
             <div>
-              <p className={styles.cardEyebrow}>Driving Inference</p>
-              <h2>빛 노이즈 상황에서 baseline 대비 더 안정적인 line detection</h2>
+              <p className={styles.cardEyebrow}>DeepRacer Track Comparison</p>
+              <h2>같은 트랙, 같은 차량, 다른 모델</h2>
             </div>
-            <span className={styles.badge}>SMoL inference</span>
+            <span className={styles.badge}>10 second lap</span>
           </div>
 
-          <svg viewBox="0 0 760 360" className={styles.inferenceSvg} aria-label="Robust driving inference scene">
-            <defs>
-              <linearGradient id="roadFade" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#050505" />
-                <stop offset="100%" stopColor="#0d0d0d" />
-              </linearGradient>
-            </defs>
-            <rect x="0" y="0" width="760" height="360" rx="30" fill="url(#roadFade)" />
-            <line x1="380" y1="28" x2="380" y2="332" stroke="rgba(255,255,255,0.08)" strokeWidth="2" strokeDasharray="8 10" />
-            <text x="78" y="44" className={styles.overlayLabel}>
-              baseline
-            </text>
-            <text x="454" y="44" className={styles.overlayLabel}>
-              SMoL
-            </text>
+          <div className={styles.comparisonGrid}>
+            <article className={`${styles.trackCard} ${styles.trackCardDanger}`}>
+              <div className={styles.trackHeader}>
+                <div>
+                  <p className={styles.trackEyebrow}>Baseline</p>
+                  <h3>glare 구간에서 lane 인식 붕괴</h3>
+                </div>
+                <span className={styles.trackStateDanger}>{baselineStatus}</span>
+              </div>
 
-            <g transform="translate(0 0)">
-              <circle cx={214 + glareOffset * 1.3} cy="84" r="62" fill="rgba(255,234,188,0.24)" />
-              <circle cx={214 + glareOffset * 0.65} cy="84" r="112" fill="rgba(255,234,188,0.11)" />
-              <path d="M 44 332 L 156 88 L 224 88 L 336 332" fill="rgba(34,34,34,0.94)" />
-              <path d="M 130 332 L 174 88" stroke={`rgba(122,163,255,${0.16 + baselineLine * 0.46})`} strokeWidth="7" strokeLinecap="round" strokeDasharray="16 14" />
-              <path d="M 250 332 L 206 88" stroke={`rgba(122,163,255,${0.14 + baselineLine * 0.42})`} strokeWidth="7" strokeLinecap="round" strokeDasharray="18 18" />
-              <rect x="232" y="176" width="76" height="46" rx="14" fill="none" stroke="rgba(255,138,107,0.28)" strokeWidth="4" />
-              <text x="66" y="314" className={styles.overlayMeta}>
-                line {Math.round(baselineLine * 100)}%
-              </text>
-            </g>
+              <svg viewBox="0 0 360 260" className={styles.trackSvg} aria-label="Baseline track simulation">
+                <defs>
+                  <radialGradient id="baselineGlare" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stopColor="rgba(255,236,190,0.42)" />
+                    <stop offset="100%" stopColor="rgba(255,236,190,0)" />
+                  </radialGradient>
+                </defs>
+                <rect x="0" y="0" width="360" height="260" rx="28" fill="#060606" />
+                <path d={baseTrackPath} fill="none" stroke="rgba(18,18,18,0.98)" strokeWidth="42" strokeLinecap="round" strokeLinejoin="round" />
+                <path d={baseTrackPath} fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                <path d={baseTrackPath} fill="none" stroke="rgba(255,255,255,0.16)" strokeWidth="2" strokeDasharray="10 10" strokeLinecap="round" strokeLinejoin="round" />
+                <circle cx={glareHotspot.x + glareOffset} cy={glareHotspot.y - 8} r="58" fill="url(#baselineGlare)" />
+                <path d={baselineWindow} fill="none" stroke="rgba(255,138,107,0.94)" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+                <g transform={`translate(${baselinePose.point.x} ${baselinePose.point.y}) rotate(${toDegrees(baselinePose.angle)})`}>
+                  <rect x="-13" y="-8" width="26" height="16" rx="6" fill="#ff8a6b" />
+                  <rect x="-5" y="-6" width="10" height="12" rx="3" fill="#fff4e8" />
+                </g>
+                <text x="24" y="30" className={styles.trackOverlay}>
+                  glare zone
+                </text>
+                <text x="24" y="238" className={styles.trackMetaText}>
+                  detected lane {Math.round(baselineLine * 100)}%
+                </text>
+              </svg>
 
-            <g transform="translate(380 0)">
-              <circle cx={214 + glareOffset * 1.3} cy="84" r="62" fill="rgba(255,234,188,0.24)" />
-              <circle cx={214 + glareOffset * 0.65} cy="84" r="112" fill="rgba(255,234,188,0.11)" />
-              <path d="M 44 332 L 156 88 L 224 88 L 336 332" fill="rgba(34,34,34,0.94)" />
-              <path d="M 130 332 L 174 88" stroke={`rgba(122,163,255,${0.28 + lineConfidence * 0.68})`} strokeWidth="8" strokeLinecap="round" />
-              <path d="M 250 332 L 206 88" stroke={`rgba(122,163,255,${0.28 + lineConfidence * 0.68})`} strokeWidth="8" strokeLinecap="round" />
-              <path d="M 190 332 L 190 120" stroke="rgba(255,255,255,0.34)" strokeWidth="4" strokeDasharray="14 14" />
-              <rect x="232" y="176" width="76" height="46" rx="14" fill="none" stroke={`rgba(255,138,107,${0.24 + recovery * 0.62})`} strokeWidth="4" />
-              <text x="60" y="314" className={styles.overlayMeta}>
-                line {Math.round(lineConfidence * 100)}%
-              </text>
-              <text x="228" y="170" className={styles.overlayMeta}>
-                glare recover {Math.round(recovery * 100)}%
-              </text>
-            </g>
-          </svg>
+              <div className={styles.trackStats}>
+                <div className={styles.trackStat}>
+                  <span>Model</span>
+                  <strong>Baseline</strong>
+                </div>
+                <div className={styles.trackStat}>
+                  <span>Lap</span>
+                  <strong>10.0 s</strong>
+                </div>
+                <div className={styles.trackStat}>
+                  <span>Status</span>
+                  <strong>{baselineStatus}</strong>
+                </div>
+              </div>
+
+              <p className={styles.trackCopy}>
+                glare 구간에 진입하면 모델이 읽는 lane window가 바깥쪽으로 틀어지고, 차량도 그 인식된 lane을 따라가며 트랙 밖으로 벗어난다.
+              </p>
+            </article>
+
+            <article className={`${styles.trackCard} ${styles.trackCardSafe}`}>
+              <div className={styles.trackHeader}>
+                <div>
+                  <p className={styles.trackEyebrow}>SMoL</p>
+                  <h3>glare 구간에서도 lane 유지</h3>
+                </div>
+                <span className={styles.trackStateSafe}>{smolStatus}</span>
+              </div>
+
+              <svg viewBox="0 0 360 260" className={styles.trackSvg} aria-label="SMoL track simulation">
+                <defs>
+                  <radialGradient id="smolGlare" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stopColor="rgba(255,236,190,0.42)" />
+                    <stop offset="100%" stopColor="rgba(255,236,190,0)" />
+                  </radialGradient>
+                </defs>
+                <rect x="0" y="0" width="360" height="260" rx="28" fill="#060606" />
+                <path d={baseTrackPath} fill="none" stroke="rgba(18,18,18,0.98)" strokeWidth="42" strokeLinecap="round" strokeLinejoin="round" />
+                <path d={baseTrackPath} fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                <path d={baseTrackPath} fill="none" stroke="rgba(255,255,255,0.16)" strokeWidth="2" strokeDasharray="10 10" strokeLinecap="round" strokeLinejoin="round" />
+                <circle cx={glareHotspot.x + glareOffset} cy={glareHotspot.y - 8} r="58" fill="url(#smolGlare)" />
+                <path d={smolWindow} fill="none" stroke="rgba(122,163,255,0.96)" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+                <g transform={`translate(${smolPose.point.x} ${smolPose.point.y}) rotate(${toDegrees(smolPose.angle)})`}>
+                  <rect x="-13" y="-8" width="26" height="16" rx="6" fill="#7aa3ff" />
+                  <rect x="-5" y="-6" width="10" height="12" rx="3" fill="#eef4ff" />
+                </g>
+                <text x="24" y="30" className={styles.trackOverlay}>
+                  glare zone
+                </text>
+                <text x="24" y="238" className={styles.trackMetaText}>
+                  detected lane {Math.round(lineConfidence * 100)}%
+                </text>
+              </svg>
+
+              <div className={styles.trackStats}>
+                <div className={styles.trackStat}>
+                  <span>Model</span>
+                  <strong>SMoL</strong>
+                </div>
+                <div className={styles.trackStat}>
+                  <span>Lap</span>
+                  <strong>10.0 s</strong>
+                </div>
+                <div className={styles.trackStat}>
+                  <span>Status</span>
+                  <strong>{smolStatus}</strong>
+                </div>
+              </div>
+
+              <p className={styles.trackCopy}>
+                같은 glare 구간에서도 lane window가 centerline 근처를 유지하고, 차량도 트랙 위 특정 lane을 따라 안정적으로 한 바퀴를 마친다.
+              </p>
+            </article>
+          </div>
 
           <div className={styles.bottomGrid}>
             <article className={styles.bottomCard}>
-              <span className={styles.statLabel}>학습 파이프라인</span>
-              <h3>원본-증강 동일 정답</h3>
-              <p>원본 프레임과 glare augmentation 프레임을 같은 lane GT로 묶어 supervised + contrastive loss를 함께 거는 구조를 상정한다.</p>
+              <span className={styles.statLabel}>트랙 설정</span>
+              <h3>동일 track / 동일 car</h3>
+              <p>두 패널은 동일한 DeepRacer 스타일 폐곡선 트랙과 동일한 차량 geometry를 사용하고, 모델만 다르게 둔다.</p>
             </article>
             <article className={styles.bottomCard}>
-              <span className={styles.statLabel}>적용 결과</span>
-              <h3>Line robustness</h3>
-              <p>빛 번짐으로 일부 edge가 사라지는 상황에서도 차선 topology를 유지해 baseline보다 더 연속적인 line detection을 보인다.</p>
+              <span className={styles.statLabel}>lane visualization</span>
+              <h3>차량이 보는 lane window</h3>
+              <p>차량 앞쪽에 그려지는 선이 현재 모델이 읽는 lane이다. baseline은 glare에서 바깥으로 휘고, SMoL은 track 안쪽을 유지한다.</p>
             </article>
             <article className={styles.bottomCard}>
               <span className={styles.statLabel}>현재 단계</span>

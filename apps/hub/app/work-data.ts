@@ -66,7 +66,7 @@ export const works: WorkItem[] = [
     slug: "smol",
     name: "SMoL",
     description:
-      "빛 번짐 데이터 생성, contrastive alignment, domain adaptation, 그리고 glare-robust line detection을 함께 보여주는 학습 시각화 프로젝트.",
+      "동일한 DeepRacer 스타일 트랙 위에서 glare 구간을 지날 때 baseline은 탈선하고 SMoL은 lane을 유지하는 비교 주행 데모.",
     status: "Prototype",
     stack: ["SVG", "Contrastive Learning", "Lane Detection"],
     year: "2026",

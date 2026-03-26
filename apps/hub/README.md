@@ -39,7 +39,7 @@
   - 자동 클라이밍 사이클 재생
   - 대회 제약, 설계 변경, 하드웨어 리스크까지 포함한 wall-climbing 설계 기록
 - SMoL
-  - 빛 번짐 synthetic data, contrastive alignment, domain adaptation, glare-robust line detection 시각화
+  - 동일 트랙 / 동일 차량 조건에서 glare 구간 lane 인식과 탈선 여부를 비교하는 DeepRacer-style line detection 데모
 
 ## 개발 메모
 
@@ -52,7 +52,7 @@
 - `app/components/WallClExperience.tsx`
   - wall climbing gait와 예상 하드웨어 설계 화면
 - `app/components/SmolExperience.tsx`
-  - SMoL 학습 과정과 glare-robust line detection 시각화 화면
+  - SMoL 학습 과정과 DeepRacer-style glare lane comparison 화면
 
 ## 목표
 
