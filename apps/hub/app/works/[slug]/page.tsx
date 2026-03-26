@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BlackHoleScene } from "../../components/BlackHoleScene";
 import { NBVRoboticsExperience } from "../../components/NBVRoboticsExperience";
@@ -35,9 +34,6 @@ export default async function WorkPage({
     <main className={styles.workShell}>
       <WorkGestureBack />
       <article className={styles.workCard}>
-        <Link href="/" className={styles.backLink}>
-          Back to dock
-        </Link>
         <p className={styles.eyebrow}>{work.status}</p>
         <h1 className={styles.panelTitle}>{work.name}</h1>
         <p className={styles.panelCopy}>{work.description}</p>

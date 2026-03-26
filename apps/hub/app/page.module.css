@@ -317,7 +317,7 @@
 .previewDock {
   position: fixed;
   right: 22px;
-  bottom: 22px;
+  bottom: 98px;
   z-index: 9;
   width: 220px;
   aspect-ratio: 4 / 3;
@@ -345,6 +345,45 @@
 
 .previewCanvas {
   pointer-events: none;
+}
+
+.exitButton {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 116px;
+  min-height: 58px;
+  padding: 0 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.06), transparent 58%),
+    linear-gradient(180deg, rgba(12, 12, 12, 0.92), rgba(2, 2, 2, 0.88));
+  color: rgba(255, 255, 255, 0.76);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(16px);
+  cursor: none;
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    color 180ms ease;
+}
+
+.exitButtonActive {
+  transform: translateY(-2px);
+  border-color: rgba(255, 212, 138, 0.48);
+  color: rgba(255, 223, 170, 0.94);
+  box-shadow:
+    0 28px 82px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 0 0 8px rgba(255, 212, 138, 0.07);
 }
 
 .workShell {
@@ -452,13 +491,20 @@
   .previewDock {
     width: 160px;
     right: 14px;
-    bottom: 14px;
+    bottom: 82px;
   }
 
   .statusDock {
     left: 14px;
     bottom: 14px;
     padding: 9px 12px;
+  }
+
+  .exitButton {
+    right: 14px;
+    bottom: 14px;
+    min-width: 102px;
+    min-height: 52px;
   }
 
   .workMetaGrid {

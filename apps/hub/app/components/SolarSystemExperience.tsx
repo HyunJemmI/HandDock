@@ -1,13 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./SolarSystemExperience.module.css";
 import {
   FINGERTIP_INDICES,
-  GLOBAL_MENU_FLAG_KEY,
   type Landmark,
   type VisionModule,
   clamp,
@@ -69,6 +67,8 @@ const FOCUS_ZOOM_STEP = 4.2;
 const SUN_FOCUS_ZOOM = 3.6;
 const MENU_RETURN_HOLD_MS = 220;
 const BLACK_HOLE_HOLD_MS = 180;
+const EXIT_BUTTON_ID = "exit-button";
+const EXIT_HOLD_MS = 220;
 const SOLAR_BODIES: BodySpec[] = [
   {
     id: "sun",
@@ -530,6 +530,7 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
   const router = useRouter();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [hoveredAction, setHoveredAction] = useState<string | null>(null);
   const [blackHoleVisible, setBlackHoleVisible] = useState(false);
   const [sensorState, setSensorState] = useState<SensorState>("searching");
   const [statusLabel, setStatusLabel] = useState("Searching for hands");
@@ -550,6 +551,7 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
   const menuReturnArmedAtRef = useRef<number | null>(null);
   const leftBackArmedAtRef = useRef<number | null>(null);
   const blackHoleArmedAtRef = useRef<number | null>(null);
+  const exitArmedAtRef = useRef<number | null>(null);
   const viewRef = useRef({
     cameraX: -90,
     cameraY: 0,
@@ -699,8 +701,10 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
           menuReturnArmedAtRef.current = null;
           leftBackArmedAtRef.current = null;
           blackHoleArmedAtRef.current = null;
+          exitArmedAtRef.current = null;
           hoveredIdRef.current = null;
           setHoveredId(null);
+          setHoveredAction(null);
           trackingFrameRef.current = requestAnimationFrame(loop);
           return;
         }
@@ -713,6 +717,12 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
         };
         pointerRef.current = nextPointer;
         setPointer(nextPointer);
+        const nextHoveredAction =
+          document
+            .elementFromPoint(nextPointer.x, nextPointer.y)
+            ?.closest("[data-action-id]")
+            ?.getAttribute("data-action-id") ?? null;
+        setHoveredAction(nextHoveredAction);
 
         const rightPinched = isPinched(pointerHand);
         if (rightPinched) {
@@ -777,17 +787,29 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
           blackHoleArmedAtRef.current = null;
         }
 
-        if (leftClustered && !rightClustered && now >= menuCooldownUntilRef.current) {
+        if (nextHoveredAction === EXIT_BUTTON_ID && leftClustered && now >= menuCooldownUntilRef.current) {
+          if (!exitArmedAtRef.current) {
+            exitArmedAtRef.current = now;
+          } else if (now - exitArmedAtRef.current >= EXIT_HOLD_MS) {
+            router.push("/");
+            return;
+          }
+        } else {
+          exitArmedAtRef.current = null;
+        }
+
+        if (
+          leftClustered &&
+          !rightClustered &&
+          nextHoveredAction !== EXIT_BUTTON_ID &&
+          now >= menuCooldownUntilRef.current
+        ) {
           if (!leftBackArmedAtRef.current) {
             leftBackArmedAtRef.current = now;
           } else if (now - leftBackArmedAtRef.current >= MENU_RETURN_HOLD_MS) {
             menuCooldownUntilRef.current = now + MENU_ENTRY_COOLDOWN_MS;
             if (selectedIdRef.current) {
               viewRef.current.targetZoom = SYSTEM_ZOOM;
-            } else if (!blackHoleVisibleRef.current) {
-              sessionStorage.setItem(GLOBAL_MENU_FLAG_KEY, "1");
-              router.push("/");
-              return;
             }
             leftBackArmedAtRef.current = null;
           }
@@ -802,10 +824,6 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
             menuCooldownUntilRef.current = now + MENU_ENTRY_COOLDOWN_MS;
             if (blackHoleVisibleRef.current) {
               returnToSolarOverview();
-            } else {
-              sessionStorage.setItem(GLOBAL_MENU_FLAG_KEY, "1");
-              router.push("/");
-              return;
             }
           }
         } else {
@@ -1062,10 +1080,6 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
         </div>
       ) : null}
       <div className={styles.overlay}>
-        <Link href="/" className={styles.backLink}>
-          Back to dock
-        </Link>
-
         {selected ? (
           <section className={styles.focusBadge}>
             <p className={styles.eyebrow}>Surface Focus</p>
@@ -1124,7 +1138,7 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
               <p className={styles.detailEyebrow}>System Overview / Procedural</p>
               <h2 className={styles.detailTitle}>Select A Body</h2>
               <p className={styles.detailCopy}>
-                Every planet and key moon is generated in code, not from external texture files. Use the right hand to drag the atlas, left pinch to select a target, and left fist to back out.
+                Every planet and key moon is generated in code, not from external texture files. Use the right hand to drag the atlas, left pinch to select a target, and left fist to zoom back out.
               </p>
               <div className={styles.detailMeta}>
                 <span className={styles.metaPill}>9 primary bodies</span>
@@ -1138,10 +1152,20 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
         <div className={styles.hintBar}>
           <span className={styles.hint}>Right pinch + move: drag view</span>
           <span className={styles.hint}>Left pinch: click / focus</span>
-          <span className={styles.hint}>Left fist: zoom out / return</span>
+          <span className={styles.hint}>Left fist: zoom out</span>
           <span className={styles.hint}>Both open hands: black hole</span>
-          <span className={styles.hint}>Both fists: close singularity / return to menu</span>
+          <span className={styles.hint}>Both fists: close singularity</span>
         </div>
+
+        <button
+          type="button"
+          data-action-id={EXIT_BUTTON_ID}
+          className={`${styles.exitButton} ${
+            hoveredAction === EXIT_BUTTON_ID ? styles.exitButtonActive : ""
+          }`}
+        >
+          Exit
+        </button>
       </div>
 
       <div

@@ -60,14 +60,6 @@
   pointer-events: none;
 }
 
-.backLink {
-  position: absolute;
-  top: 24px;
-  left: 24px;
-  color: rgba(255, 255, 255, 0.76);
-  pointer-events: auto;
-}
-
 .hero {
   position: absolute;
   left: 24px;
@@ -302,7 +294,7 @@
 .statusDock {
   position: fixed;
   right: 22px;
-  bottom: 22px;
+  bottom: 98px;
   z-index: 5;
   width: 220px;
   aspect-ratio: 4 / 3;
@@ -369,6 +361,45 @@
   background: currentColor;
 }
 
+.exitButton {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 116px;
+  min-height: 58px;
+  padding: 0 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.06), transparent 58%),
+    linear-gradient(180deg, rgba(10, 10, 12, 0.92), rgba(3, 3, 3, 0.88));
+  color: rgba(255, 255, 255, 0.78);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  cursor: none;
+  pointer-events: auto;
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    color 180ms ease;
+}
+
+.exitButtonActive {
+  transform: translateY(-2px);
+  border-color: rgba(255, 186, 122, 0.52);
+  color: rgba(255, 216, 170, 0.96);
+  box-shadow:
+    0 28px 82px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 0 0 8px rgba(255, 186, 122, 0.08);
+}
+
 @media (max-width: 960px) {
   .hero {
     max-width: calc(100vw - 48px);
@@ -396,7 +427,6 @@
 }
 
 @media (max-width: 720px) {
-  .backLink,
   .hero,
   .focusBadge,
   .detailCard,
@@ -417,7 +447,14 @@
 
   .statusDock {
     right: 14px;
-    bottom: 14px;
+    bottom: 82px;
     width: 160px;
+  }
+
+  .exitButton {
+    right: 14px;
+    bottom: 14px;
+    min-width: 102px;
+    min-height: 52px;
   }
 }

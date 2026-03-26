@@ -68,11 +68,12 @@ type MenuNode = {
 };
 
 const MENU_BUTTON_ID = "menu-button";
+const EXIT_BUTTON_ID = "exit-button";
 const POINTER_SMOOTHING = 0.32;
 const CURSOR_GAIN_X = 1.78;
 const CURSOR_GAIN_Y = 1.58;
 const MENU_ENTRY_COOLDOWN_MS = 520;
-const MENU_CLOSE_HOLD_MS = 220;
+const EXIT_HOLD_MS = 220;
 const LOW_LIGHT_THRESHOLD = 44;
 const FINGERTIP_COLORS = ["#f7c66a", "#8af4dd", "#f4f7fb", "#f39bd8", "#78b9ff"];
 
@@ -447,6 +448,7 @@ export function HandDockHome({
   }
 
   function closeMenu() {
+    menuCooldownUntilRef.current = performance.now() + MENU_ENTRY_COOLDOWN_MS;
     modeRef.current = "landing";
     setMode("landing");
     menuCloseArmedAtRef.current = null;
@@ -613,7 +615,6 @@ export function HandDockHome({
 
         const leftOpen = actionHand ? isOpenPalm(actionHand) : false;
         const leftClustered = actionHand ? isHandClustered(actionHand) : false;
-        const rightClustered = isHandClustered(pointerHand);
         const canTriggerPrimary = now >= menuCooldownUntilRef.current;
         const hoveredAction =
           document
@@ -648,10 +649,10 @@ export function HandDockHome({
         }
 
         if (!shouldContinue && modeRef.current === "menu") {
-          if (leftClustered && rightClustered) {
+          if (hoveredAction === EXIT_BUTTON_ID && leftClustered) {
             if (!menuCloseArmedAtRef.current) {
               menuCloseArmedAtRef.current = now;
-            } else if (now - menuCloseArmedAtRef.current >= MENU_CLOSE_HOLD_MS) {
+            } else if (now - menuCloseArmedAtRef.current >= EXIT_HOLD_MS) {
               nextIntent = "back-swipe";
               closeMenu();
               shouldContinue = true;
@@ -800,6 +801,17 @@ export function HandDockHome({
               </div>
             </article>
           ) : null}
+
+          <button
+            type="button"
+            aria-label="Exit to landing"
+            data-action-id={EXIT_BUTTON_ID}
+            className={`${styles.exitButton} ${
+              state.hoveredAction === EXIT_BUTTON_ID ? styles.exitButtonActive : ""
+            }`}
+          >
+            Exit
+          </button>
         </section>
       ) : null}
 

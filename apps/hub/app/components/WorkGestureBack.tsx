@@ -1,30 +1,28 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import styles from "../page.module.css";
 import {
-  GLOBAL_MENU_FLAG_KEY,
-  SWIPE_WINDOW_MS,
-  type TrailPoint,
   type VisionModule,
-  detectBackSwipe,
+  clamp,
+  clamp01,
+  getHandScale,
   getLargestHand,
   isHandClustered,
-  isOpenPalm,
   loadVisionModule,
   splitHandsBySide,
 } from "./hand-tracking";
 
-type Gesture = "open" | "clenched" | "neutral" | "searching";
-const MENU_ENTRY_COOLDOWN_MS = 520;
+const EXIT_BUTTON_ID = "exit-button";
+const EXIT_HOLD_MS = 220;
 
 export function WorkGestureBack() {
   const router = useRouter();
   const frameRef = useRef<number | null>(null);
-  const trailRef = useRef<TrailPoint[]>([]);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const previousGestureRef = useRef<Gesture>("searching");
-  const cooldownUntilRef = useRef(0);
+  const exitArmedAtRef = useRef<number | null>(null);
+  const [hoveredAction, setHoveredAction] = useState<string | null>(null);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -98,44 +96,37 @@ export function WorkGestureBack() {
         const actionHand = leftHand;
 
         if (!pointerHand) {
-          trailRef.current = [];
-          previousGestureRef.current = "searching";
+          exitArmedAtRef.current = null;
+          setHoveredAction(null);
           frameRef.current = requestAnimationFrame(loop);
           return;
         }
 
-        const x = (1 - pointerHand[8].x) * window.innerWidth;
-        const y = pointerHand[8].y * window.innerHeight;
-        trailRef.current = [
-          ...trailRef.current.filter((item) => now - item.time < SWIPE_WINDOW_MS),
-          { x, y, time: now },
-        ];
+        const scale = getHandScale(pointerHand);
+        const sensitivity = clamp(0.18 / scale, 0.9, 1.3);
+        const x =
+          clamp01(((1 - pointerHand[8].x) - 0.5) * 1.78 * sensitivity + 0.5) * window.innerWidth;
+        const y = clamp01((pointerHand[8].y - 0.5) * 1.56 * sensitivity + 0.5) * window.innerHeight;
+        const nextHoveredAction =
+          document
+            .elementFromPoint(x, y)
+            ?.closest("[data-action-id]")
+            ?.getAttribute("data-action-id") ?? null;
+        setHoveredAction(nextHoveredAction);
 
-        if (detectBackSwipe(trailRef.current, { width: window.innerWidth, height: window.innerHeight })) {
-          router.push("/");
-          return;
+        if (nextHoveredAction === EXIT_BUTTON_ID && actionHand && isHandClustered(actionHand)) {
+          if (!exitArmedAtRef.current) {
+            exitArmedAtRef.current = now;
+          } else if (now - exitArmedAtRef.current >= EXIT_HOLD_MS) {
+            exitArmedAtRef.current = null;
+            setHoveredAction(null);
+            router.push("/");
+            return;
+          }
+        } else {
+          exitArmedAtRef.current = null;
         }
 
-        const nextGesture: Gesture = actionHand
-          ? isHandClustered(actionHand)
-            ? "clenched"
-            : isOpenPalm(actionHand)
-              ? "open"
-              : "neutral"
-          : "searching";
-
-        if (
-          previousGestureRef.current === "clenched" &&
-          nextGesture === "open" &&
-          now >= cooldownUntilRef.current
-        ) {
-          cooldownUntilRef.current = now + MENU_ENTRY_COOLDOWN_MS;
-          sessionStorage.setItem(GLOBAL_MENU_FLAG_KEY, "1");
-          router.push("/");
-          return;
-        }
-
-        previousGestureRef.current = nextGesture;
         frameRef.current = requestAnimationFrame(loop);
       };
 
@@ -157,12 +148,23 @@ export function WorkGestureBack() {
   }, [router]);
 
   return (
-    <video
-      ref={videoRef}
-      style={{ position: "fixed", width: 1, height: 1, opacity: 0 }}
-      autoPlay
-      muted
-      playsInline
-    />
+    <>
+      <button
+        type="button"
+        data-action-id={EXIT_BUTTON_ID}
+        className={`${styles.exitButton} ${
+          hoveredAction === EXIT_BUTTON_ID ? styles.exitButtonActive : ""
+        }`}
+      >
+        Exit
+      </button>
+      <video
+        ref={videoRef}
+        style={{ position: "fixed", width: 1, height: 1, opacity: 0 }}
+        autoPlay
+        muted
+        playsInline
+      />
+    </>
   );
 }
