@@ -62,6 +62,13 @@
   line-height: 0.98;
 }
 
+.heroCopy {
+  max-width: 56ch;
+  margin: 14px 0 0;
+  color: rgba(255, 255, 255, 0.66);
+  line-height: 1.7;
+}
+
 .kpiRow {
   display: flex;
   gap: 10px;
@@ -151,6 +158,25 @@
   line-height: 1.7;
 }
 
+.trainingMeta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.metaBox {
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.metaBox strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 0.96rem;
+}
+
 .embeddingPanel {
   display: grid;
   grid-template-columns: minmax(0, 240px) minmax(0, 1fr);
@@ -176,9 +202,40 @@
   font-size: 1.06rem;
 }
 
+.methodGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.methodCard {
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.methodCard h3 {
+  margin: 0;
+  font-size: 0.96rem;
+}
+
+.methodCard p {
+  margin: 8px 0 0;
+  color: rgba(255, 255, 255, 0.64);
+  line-height: 1.65;
+}
+
 .overlayLabel {
   fill: rgba(255, 255, 255, 0.82);
   font-size: 14px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.04em;
+}
+
+.overlayMeta {
+  fill: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
   font-family: ui-sans-serif, system-ui, sans-serif;
   letter-spacing: 0.04em;
 }
@@ -206,6 +263,11 @@
   }
 
   .embeddingPanel {
+    grid-template-columns: 1fr;
+  }
+
+  .trainingMeta,
+  .methodGrid {
     grid-template-columns: 1fr;
   }
 }

@@ -10,7 +10,7 @@
   - 우측 상단의 회전하는 와이어프레임 정육면체 버튼으로 메뉴 진입 가능
 - 브레인 메뉴 화면
   - 프로젝트 구체들이 브레인 장면 위에 배치됨
-  - 현재는 `Solar Orrery`, `NBV Robotics Lab`, `WallCL`, `LCL` 네 작업물을 유지
+  - 현재는 `Solar Orrery`, `NBV Robotics Lab`, `WallCL`, `SMoL` 네 작업물을 유지
 - 작업물 상세 화면
   - 각 작업물별 인터랙션 컴포넌트로 분기
 
@@ -37,9 +37,9 @@
   - 오른손 `pinch`: 우상단 속도 바 조절에도 사용
 - WallCL
   - 자동 클라이밍 사이클 재생
-  - 예상 하드웨어 프레임과 제어 구성 표시
-- LCL
-  - contrastive learning 진행도, embedding 정렬, glare-robust detection 시각화
+  - 대회 제약, 설계 변경, 하드웨어 리스크까지 포함한 wall-climbing 설계 기록
+- SMoL
+  - 빛 번짐 synthetic data, contrastive alignment, domain adaptation, glare-robust line detection 시각화
 
 ## 개발 메모
 
@@ -51,8 +51,8 @@
   - 작업물별 라우팅 분기
 - `app/components/WallClExperience.tsx`
   - wall climbing gait와 예상 하드웨어 설계 화면
-- `app/components/LclExperience.tsx`
-  - contrastive learning 및 glare-robust detection 시각화 화면
+- `app/components/SmolExperience.tsx`
+  - SMoL 학습 과정과 glare-robust line detection 시각화 화면
 
 ## 목표
 

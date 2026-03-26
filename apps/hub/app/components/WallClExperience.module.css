@@ -75,7 +75,8 @@
 
 .metricCard,
 .footerCard,
-.featureCard {
+.featureCard,
+.storyCard {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.03);
@@ -146,8 +147,31 @@
   margin-top: 16px;
 }
 
+.storyGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
 .footerCard {
   padding: 16px 16px 15px;
+}
+
+.storyCard {
+  padding: 16px;
+}
+
+.storyLabel {
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.storyCard h3 {
+  margin: 8px 0 0;
+  font-size: 1rem;
 }
 
 .footerCard strong {
@@ -157,7 +181,8 @@
 }
 
 .footerCard p,
-.featureCard p {
+.featureCard p,
+.storyCard p {
   margin: 8px 0 0;
   color: rgba(255, 255, 255, 0.66);
   line-height: 1.65;
@@ -190,6 +215,30 @@
 .featureCard h3 {
   margin: 0;
   font-size: 1rem;
+}
+
+.storyPanel {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.panelBlock {
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.bulletList {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: rgba(255, 255, 255, 0.68);
+  line-height: 1.72;
+}
+
+.bulletList li + li {
+  margin-top: 8px;
 }
 
 .stackBlock {
@@ -239,6 +288,10 @@
   }
 
   .footerGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .storyGrid {
     grid-template-columns: 1fr;
   }
 }

@@ -60,6 +60,46 @@ const CONTROL_STACK = [
   "Battery + Magnet Driver",
 ];
 
+const STORY_BLOCKS = [
+  {
+    title: "대회 준비 제약",
+    description:
+      "코로나 시기라 동아리방 사용이 막혀 원룸 공유와 후반 3주 Airbnb 공간에서 준비했다. 제한된 공간에서 조립, 테스트, 수정이 반복됐다.",
+  },
+  {
+    title: "짧은 준비 기간",
+    description:
+      "학기 중 대회였고 아두이노, C, 회로, 센서 경험이 거의 없는 상태에서 바로 구현 단계로 들어가야 했다. 이론보다 빠른 실험과 실패가 우선이었다.",
+  },
+  {
+    title: "역할 분담",
+    description:
+      "회로 설계, C 코딩, 3D 프린터 활용으로 역할을 나눴고, 여기서는 특히 3D 프린팅 기반 경량화와 강성 확보 전략을 강조한다.",
+  },
+];
+
+const DECISION_PATH = [
+  "아이디어 120여 개를 모아 최종 주제를 추렸다.",
+  "팬 흡착식은 모터와 전압 제약으로 비용 부담이 커서 제외했다.",
+  "점성 방식은 제어 수단이 마땅치 않아 제외했다.",
+  "전자석은 철 구조물 제약이 있지만 전원 on/off로 부착력을 제어할 수 있어 채택했다.",
+  "추후 확장 아이디어로 자석 캐터필러 방식도 고려 대상에 남겼다.",
+];
+
+const DESIGN_NOTES = [
+  "다리 단면을 T자 형태로 설계해 얇은 재질에서도 강도를 올렸다.",
+  "1mm씩 증분 테스트한 결과, 5mm가 무게 대비 강도 효율이 가장 좋았다.",
+  "전자석 장착부는 단순 관통이 아니라 얇은 지지 구조를 추가해 받쳐주도록 설계했다.",
+  "초기 3-leg 회전형은 무겁고 이동 효율이 낮아 2-leg 교차 고정형으로 변경했다.",
+  "전자석 회전 저항은 고무줄과 유격으로 줄여 정지마찰을 운동마찰 상태로 넘기게 했다.",
+];
+
+const RISK_NOTES = [
+  "역기전력 때문에 다이오드를 넣었지만 발열과 연기가 발생해 제거하고 테스트를 지속했다.",
+  "스텝 모터 3개, 아두이노, 센서, 전자석으로 인해 기본 무게가 높아 프레임 경량화가 필수였다.",
+  "두 접점 사이 거리를 일정하게 유지하지 않으면 자석이 밀리며 추락 가능성이 커진다.",
+];
+
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
 }
@@ -265,6 +305,14 @@ export function WallClExperience() {
                 <span className={styles.metricLabel}>Height</span>
                 <strong>{pose.travelMeters.toFixed(2)} m</strong>
               </div>
+              <div className={styles.metricCard}>
+                <span className={styles.metricLabel}>Ideas</span>
+                <strong>120+</strong>
+              </div>
+              <div className={styles.metricCard}>
+                <span className={styles.metricLabel}>Frame</span>
+                <strong>5 mm</strong>
+              </div>
             </div>
           </div>
 
@@ -368,6 +416,16 @@ export function WallClExperience() {
               <p>벽면 방향 하중은 중앙 프레임에 모으고, 양쪽 암은 접점 교대와 자세 복원에 집중한다.</p>
             </div>
           </div>
+
+          <div className={styles.storyGrid}>
+            {STORY_BLOCKS.map((block) => (
+              <article key={block.title} className={styles.storyCard}>
+                <span className={styles.storyLabel}>Project Context</span>
+                <h3>{block.title}</h3>
+                <p>{block.description}</p>
+              </article>
+            ))}
+          </div>
         </section>
 
         <aside className={styles.hardwareCard}>
@@ -410,6 +468,35 @@ export function WallClExperience() {
                 <p>{block.description}</p>
               </article>
             ))}
+          </div>
+
+          <div className={styles.storyPanel}>
+            <div className={styles.panelBlock}>
+              <span className={styles.stackLabel}>Concept Decisions</span>
+              <ul className={styles.bulletList}>
+                {DECISION_PATH.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+
+            <div className={styles.panelBlock}>
+              <span className={styles.stackLabel}>3D Printing / Mechanical</span>
+              <ul className={styles.bulletList}>
+                {DESIGN_NOTES.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+
+            <div className={styles.panelBlock}>
+              <span className={styles.stackLabel}>Electrical Risks</span>
+              <ul className={styles.bulletList}>
+                {RISK_NOTES.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
           </div>
 
           <div className={styles.stackBlock}>

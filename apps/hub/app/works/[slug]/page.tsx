@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { BlackHoleScene } from "../../components/BlackHoleScene";
-import { LclExperience } from "../../components/LclExperience";
 import { NBVRoboticsExperience } from "../../components/NBVRoboticsExperience";
+import { SmolExperience } from "../../components/SmolExperience";
 import { SolarSystemExperience } from "../../components/SolarSystemExperience";
 import { WallClExperience } from "../../components/WallClExperience";
 import { WorkGestureBack } from "../../components/WorkGestureBack";
@@ -36,8 +36,8 @@ export default async function WorkPage({
     return <WallClExperience />;
   }
 
-  if (slug === "lcl-contrast-lab") {
-    return <LclExperience />;
+  if (slug === "smol") {
+    return <SmolExperience />;
   }
 
   return (
