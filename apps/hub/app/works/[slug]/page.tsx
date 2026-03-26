@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BlackHoleScene } from "../../components/BlackHoleScene";
+import { NBVRoboticsExperience } from "../../components/NBVRoboticsExperience";
 import { SolarSystemExperience } from "../../components/SolarSystemExperience";
 import { WorkGestureBack } from "../../components/WorkGestureBack";
 import styles from "../../page.module.css";
@@ -24,6 +25,10 @@ export default async function WorkPage({
 
   if (slug === "solar-orrery") {
     return <SolarSystemExperience blackHoleScene={<BlackHoleScene />} />;
+  }
+
+  if (slug === "nbv-robotics-lab") {
+    return <NBVRoboticsExperience />;
   }
 
   return (

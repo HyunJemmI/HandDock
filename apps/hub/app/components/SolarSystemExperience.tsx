@@ -570,6 +570,18 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
   const blackHoleVisibleRef = useRef(false);
   const stars = useMemo(() => seededStars(320), []);
 
+  function returnToSolarOverview() {
+    selectedIdRef.current = null;
+    hoveredIdRef.current = null;
+    blackHoleVisibleRef.current = false;
+    setSelectedId(null);
+    setHoveredId(null);
+    setBlackHoleVisible(false);
+    viewRef.current.manualX = 0;
+    viewRef.current.manualY = 0;
+    viewRef.current.targetZoom = SYSTEM_ZOOM;
+  }
+
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
@@ -789,8 +801,7 @@ export function SolarSystemExperience({ blackHoleScene }: SolarSystemExperienceP
           } else if (now - menuReturnArmedAtRef.current >= MENU_RETURN_HOLD_MS) {
             menuCooldownUntilRef.current = now + MENU_ENTRY_COOLDOWN_MS;
             if (blackHoleVisibleRef.current) {
-              blackHoleVisibleRef.current = false;
-              setBlackHoleVisible(false);
+              returnToSolarOverview();
             } else {
               sessionStorage.setItem(GLOBAL_MENU_FLAG_KEY, "1");
               router.push("/");

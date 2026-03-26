@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "../page.module.css";
 import { works } from "../work-data";
+import { WireCubeButton } from "./WireCubeButton";
 import {
   FINGERTIP_INDICES,
   GLOBAL_MENU_FLAG_KEY,
@@ -119,17 +120,6 @@ function rectanglesOverlap(
   );
 }
 
-function buildMenuAnchor(index: number, total: number) {
-  const count = Math.max(total, 1);
-  const angle = -Math.PI / 2 + (index / count) * Math.PI * 2;
-  const radialScale = count > 5 && index % 2 === 0 ? 0.86 : 0.94;
-  const x = Math.cos(angle) * radialScale;
-  const y = Math.sin(angle) * 0.68;
-  const z = clamp(0.22 + Math.cos(angle - Math.PI / 8) * 0.28, -0.22, 0.7);
-
-  return { x, y, z };
-}
-
 function buildMenuNodes(viewport: Viewport, rotation: Rotation) {
   const centerX = viewport.width * 0.5;
   const centerY = viewport.height * 0.5;
@@ -140,7 +130,7 @@ function buildMenuNodes(viewport: Viewport, rotation: Rotation) {
   const cardGap = 30;
 
   const nodes = works.map((work, index) => {
-    const rotated = rotatePoint(buildMenuAnchor(index, works.length), rotation);
+    const rotated = rotatePoint(work.sceneAnchor, rotation);
     const depth = (rotated.z + 1) / 2;
     const x = centerX + rotated.x * radius;
     const y = centerY + rotated.y * radius * 0.72;
@@ -738,7 +728,9 @@ export function HandDockHome({
           className={`${styles.menuTrigger} ${
             state.hoveredAction === MENU_BUTTON_ID ? styles.menuTriggerActive : ""
           }`}
-        />
+        >
+          <WireCubeButton active={state.hoveredAction === MENU_BUTTON_ID} />
+        </button>
       ) : null}
 
       {mode === "menu" ? (

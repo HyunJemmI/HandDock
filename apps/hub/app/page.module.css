@@ -71,33 +71,57 @@
 
 .menuTrigger {
   position: fixed;
-  top: 44px;
-  right: 44px;
+  top: 28px;
+  right: 28px;
   z-index: 7;
-  width: 64px;
-  height: 64px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  width: 126px;
+  height: 126px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 28px;
   background:
-    radial-gradient(circle at 35% 32%, rgba(255, 255, 255, 0.2), transparent 28%),
-    linear-gradient(180deg, rgba(15, 15, 15, 0.98), rgba(4, 4, 4, 0.92));
+    radial-gradient(circle at 50% 48%, rgba(255, 255, 255, 0.04), transparent 56%),
+    linear-gradient(180deg, rgba(8, 8, 8, 0.88), rgba(2, 2, 2, 0.82));
   box-shadow:
-    0 24px 80px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    0 32px 90px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
   cursor: none;
   transition:
     transform 180ms ease,
     border-color 180ms ease,
-    box-shadow 180ms ease;
+    box-shadow 180ms ease,
+    background 180ms ease;
 }
 
 .menuTriggerActive {
-  transform: scale(1.08);
-  border-color: rgba(255, 212, 138, 0.72);
+  transform: scale(1.03);
+  border-color: rgba(255, 212, 138, 0.42);
   box-shadow:
-    0 28px 90px rgba(0, 0, 0, 0.56),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    0 0 0 6px rgba(255, 212, 138, 0.08);
+    0 36px 108px rgba(0, 0, 0, 0.62),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 0 0 8px rgba(255, 212, 138, 0.06);
+  background:
+    radial-gradient(circle at 50% 48%, rgba(255, 212, 138, 0.08), transparent 58%),
+    linear-gradient(180deg, rgba(14, 12, 9, 0.92), rgba(4, 4, 4, 0.84));
+}
+
+.cubeGlyph {
+  width: 92px;
+  height: 92px;
+  pointer-events: none;
+  filter: drop-shadow(0 0 32px rgba(255, 255, 255, 0.08));
+}
+
+.cubeGlyphActive {
+  filter: drop-shadow(0 0 36px rgba(255, 212, 138, 0.12));
+}
+
+.cubeCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .menuOverlay {
@@ -414,10 +438,15 @@
 
 @media (max-width: 900px) {
   .menuTrigger {
-    top: 20px;
-    right: 18px;
-    width: 56px;
-    height: 56px;
+    top: 18px;
+    right: 16px;
+    width: 96px;
+    height: 96px;
+  }
+
+  .cubeGlyph {
+    width: 72px;
+    height: 72px;
   }
 
   .previewDock {

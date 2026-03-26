@@ -1,0 +1,373 @@
+.shell {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #02040a;
+}
+
+.viewport {
+  position: absolute;
+  inset: 0;
+}
+
+.viewport :global(canvas) {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 12%, rgba(255, 255, 255, 0.06), transparent 18%),
+    radial-gradient(circle at 50% 58%, transparent 0%, rgba(0, 0, 0, 0.28) 62%, rgba(0, 0, 0, 0.82) 100%);
+}
+
+.topBar {
+  position: fixed;
+  top: 22px;
+  left: 22px;
+  right: 22px;
+  z-index: 5;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.backLink,
+.modePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(6, 8, 13, 0.76);
+  color: rgba(255, 255, 255, 0.76);
+  backdrop-filter: blur(18px);
+}
+
+.modePill {
+  color: rgba(255, 211, 126, 0.86);
+}
+
+.leftDock,
+.rightDock {
+  position: fixed;
+  top: 86px;
+  z-index: 5;
+  display: grid;
+  gap: 14px;
+  width: min(360px, calc(100vw - 44px));
+}
+
+.leftDock {
+  left: 22px;
+}
+
+.rightDock {
+  right: 22px;
+}
+
+.panel {
+  padding: 18px 18px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  background: rgba(7, 9, 14, 0.78);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(20px);
+}
+
+.panelEyebrow {
+  margin: 0 0 10px;
+  color: rgba(255, 211, 126, 0.78);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: -0.05em;
+}
+
+.panelCopy {
+  margin: 10px 0 0;
+  color: rgba(255, 255, 255, 0.68);
+  line-height: 1.6;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.metricCard {
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.metricLabel {
+  display: block;
+  color: rgba(255, 255, 255, 0.46);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.metricCard strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 1.04rem;
+}
+
+.directionRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.directionCopy {
+  margin: 8px 0 0;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.directionBadge {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 211, 126, 0.08);
+  color: rgba(255, 223, 160, 0.88);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.uncertaintyList {
+  display: grid;
+  gap: 12px;
+}
+
+.uncertaintyRow {
+  display: grid;
+  gap: 6px;
+}
+
+.uncertaintyHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.92rem;
+}
+
+.barTrack {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(95, 150, 255, 0.92), rgba(255, 204, 116, 0.94));
+}
+
+.uncertaintyMeta {
+  color: rgba(255, 255, 255, 0.46);
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+}
+
+.totalRow {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.74);
+}
+
+.noteBlock {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.noteLabel {
+  color: rgba(255, 211, 126, 0.84);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.guideOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.guideLine {
+  stroke: rgba(255, 211, 126, 0.58);
+  stroke-width: 1.6;
+  stroke-dasharray: 8 8;
+}
+
+.reticle {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 8;
+  width: 24px;
+  height: 24px;
+  margin-left: -12px;
+  margin-top: -12px;
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  border-radius: 999px;
+  box-shadow: 0 0 28px rgba(255, 255, 255, 0.16);
+  pointer-events: none;
+}
+
+.reticleCore {
+  position: absolute;
+  inset: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.statusDock {
+  position: fixed;
+  left: 22px;
+  bottom: 22px;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(6, 8, 13, 0.78);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(18px);
+}
+
+.statusDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  box-shadow: 0 0 18px currentColor;
+}
+
+.statusDotLive {
+  color: rgba(132, 255, 198, 0.95);
+  background: currentColor;
+}
+
+.statusDotWarning {
+  color: rgba(255, 211, 120, 0.95);
+  background: currentColor;
+}
+
+.statusDotBlocked {
+  color: rgba(255, 126, 126, 0.92);
+  background: currentColor;
+}
+
+.statusLabel {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.8rem;
+}
+
+.previewDock {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 6;
+  width: 220px;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 22px;
+  background: rgba(7, 7, 7, 0.78);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(18px);
+}
+
+.previewVideo,
+.previewCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.previewCanvas {
+  pointer-events: none;
+}
+
+@media (max-width: 1200px) {
+  .leftDock,
+  .rightDock {
+    width: min(320px, calc(100vw - 32px));
+  }
+}
+
+@media (max-width: 960px) {
+  .topBar {
+    left: 14px;
+    right: 14px;
+    top: 14px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .leftDock,
+  .rightDock {
+    position: relative;
+    top: auto;
+    left: auto;
+    right: auto;
+    width: calc(100vw - 28px);
+    margin: 90px 14px 0;
+  }
+
+  .rightDock {
+    margin-top: 14px;
+  }
+
+  .previewDock {
+    width: 160px;
+    right: 14px;
+    bottom: 14px;
+  }
+
+  .statusDock {
+    left: 14px;
+    bottom: 14px;
+  }
+}
