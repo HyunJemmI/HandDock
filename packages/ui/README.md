@@ -1,10 +1,19 @@
 # ui
 
-Shared UI parts for the HandDock portal and future works.
+이 패키지는 HandDock 허브와 이후 작업물에서 공통으로 쓸 UI 조각을 모아두기 위한 자리다.
 
-Likely contents:
+## 다루게 될 대상
 
-- cards
-- portal sections
-- motion primitives
-- overlays for gesture feedback
+- 허브용 카드와 프로젝트 메타 UI
+- 제스처 피드백 오버레이
+- 상태 점, 라벨, HUD 조각
+- 화면 전환과 모션 프리미티브
+- 작업물 공통 패널과 배지
+
+## 현재 방향
+
+지금은 앱 단위에서 직접 UI를 만들고 있지만, 반복되는 조각이 쌓이면 이 패키지로 옮겨 공통화한다.
+
+## 목표
+
+HandDock 전체가 하나의 브라우저처럼 느껴지도록, 시각 언어와 상호작용 피드백을 점차 이 패키지로 수렴시키는 것이다.

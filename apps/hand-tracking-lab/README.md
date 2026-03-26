@@ -1,10 +1,29 @@
 # Hand Tracking Lab
 
-This app is the experimental sandbox for:
+`apps/hand-tracking-lab`는 손 추적 입력을 빠르게 실험하는 공간이다.
 
-- camera setup
-- hand landmark tracking
-- gesture detection
-- cursorless control concepts
+## 역할
 
-Anything unstable should be proved here before being moved into shared packages.
+- 카메라 권한 요청 흐름 점검
+- 손 랜드마크 안정성 확인
+- 새로운 제스처 정의 실험
+- 커서 없는 인터랙션 방식 검증
+- 허브로 옮기기 전 불안정한 입력 규칙 테스트
+
+## 왜 필요한가
+
+허브나 개별 작업물에서 바로 제스처를 바꾸면 전체 흐름이 쉽게 망가진다.  
+그래서 먼저 이 실험 공간에서 다음을 확인한 뒤 공용 로직이나 실제 앱으로 옮긴다.
+
+- 감도
+- 좌표 보정
+- 핀치/주먹/손바닥 판별 기준
+- 양손 역할 분리
+- 제스처 충돌 여부
+
+## 앞으로 넣을 내용
+
+- 손별 상태 시각화
+- 좌표 smoothing 비교
+- 클릭/드래그/스와이프 제스처 튜너
+- 조도나 거리 변화에 따른 추적 안정성 비교 도구

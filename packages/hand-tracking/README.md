@@ -1,10 +1,27 @@
 # hand-tracking
 
-Shared tracking and gesture utilities will live here.
+이 패키지는 손 추적 관련 공용 유틸리티를 모아두기 위한 자리다.
 
-Examples:
+## 책임 범위
 
-- hand landmark normalization
-- pinch detection
-- hover targeting
-- gesture-to-action mapping
+- 손 랜드마크 좌표 정규화
+- 좌우 손 분리
+- 핀치, 주먹, 펼친 손 등 제스처 판별
+- 손 크기 기반 감도 보정
+- 화면 좌표 변환
+- gesture-to-action 매핑에 필요한 공용 함수 제공
+
+## 현재 허브에서 실제로 쓰이는 개념
+
+- `pinch`
+  - 클릭 또는 grasp 시작
+- `clustered hand`
+  - 주먹 또는 손가락이 모인 상태
+- `open palm`
+  - 메뉴 또는 모드 전환용 상태
+- handedness 분리
+  - 오른손은 포인터, 왼손은 명령 손으로 쓰는 구조
+
+## 목표
+
+앱마다 제스처 판별 로직을 복사하지 않고, 실험이 안정화되면 이 패키지로 끌어올려 재사용하는 것이다.

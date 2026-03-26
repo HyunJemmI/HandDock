@@ -1,9 +1,22 @@
 # spline-adapters
 
-Use this package for code imported from Spline community examples and local modifications.
+이 패키지는 Spline 커뮤니티 예제와 로컬 수정 코드를 분리해서 관리하기 위한 자리다.
 
-Rules:
+## 왜 분리하는가
 
-- keep imported code attributable
-- isolate local changes clearly
-- extract reusable adapters rather than mixing example code into apps directly
+- 커뮤니티 원본과 로컬 수정사항을 섞어 두면 관리가 어렵다.
+- 어떤 부분이 가져온 코드이고 어떤 부분이 HandDock용 수정인지 분명히 남겨야 한다.
+- 나중에 다른 작업물에서도 재사용 가능한 어댑터만 뽑아내기 쉽다.
+
+## 운영 원칙
+
+- 원본 출처를 추적 가능하게 남긴다.
+- 로컬 수정은 명확히 분리한다.
+- 앱 내부에 예제 코드를 직접 퍼뜨리지 않고 어댑터 형태로 감싼다.
+- 손 입력이나 라우팅 같은 HandDock 고유 로직은 어댑터 바깥에서 붙인다.
+
+## 예상 사용 예시
+
+- Spline scene 로더 래퍼
+- pointer event를 손 커서 이벤트로 치환하는 어댑터
+- 특정 scene 오브젝트와 로컬 UI를 연결하는 브리지 코드

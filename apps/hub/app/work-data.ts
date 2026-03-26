@@ -38,11 +38,11 @@ export const works: WorkItem[] = [
     slug: "nbv-robotics-lab",
     name: "NBV Robotics Lab",
     description:
-      "A browser-scale simulation of sequential single-view semantic segmentation, information gain, and grasp-driven scene rearrangement under occlusion.",
+      "Occlusion 환경에서 single-view semantic segmentation, information gain, 자동 NBV, 그리고 grasp planning을 시뮬레이션하는 브라우저 실험.",
     status: "Prototype",
     stack: ["Three.js", "MediaPipe", "Simulation"],
     year: "2026",
-    interactionType: "Right pinch grasp + NBV simulation",
+    interactionType: "Left fist drag + left pinch priority + right pinch grasp",
     accentLabel: "NBV",
     sceneAnchor: { x: 0.62, y: 0.14, z: 0.34 },
     cardOffset: { x: 14, y: -10 },
