@@ -14,14 +14,19 @@ import {
   getHandScale,
   getLargestHand,
   isHandClustered,
-  isOpenPalm,
   loadVisionModule,
   splitHandsBySide,
 } from "./hand-tracking";
 
 type SensorState = "tracking" | "searching" | "camera-blocked" | "low-light";
 type ShapeType = "box" | "cylinder";
-type PlannerStage = "manual" | "auto-scan" | "ready" | "auto-grasp" | "complete";
+type PlannerStage =
+  | "manual"
+  | "auto-scan"
+  | "pose-estimation"
+  | "pile-disturbance"
+  | "auto-grasp"
+  | "complete";
 
 type SceneObjectSpec = {
   id: string;
@@ -66,6 +71,8 @@ type RuntimeObject = {
   graspScore: number;
   graspReady: boolean;
   grasped: boolean;
+  poseAttempts: number;
+  poseSolved: boolean;
   bestViewId: string;
   dropSlot: number | null;
 };
@@ -104,6 +111,17 @@ type AutoGraspTask = {
   objectStart: THREE.Vector3;
 };
 
+type DisturbanceTask = {
+  targetId: string;
+  phase: "approach" | "sweep" | "reset";
+  phaseStartedAt: number;
+  startEffector: THREE.Vector3;
+  approachPosition: THREE.Vector3;
+  sweepStart: THREE.Vector3;
+  sweepEnd: THREE.Vector3;
+  resetPosition: THREE.Vector3;
+};
+
 const CURSOR_GAIN_X = 1.72;
 const CURSOR_GAIN_Y = 1.56;
 const POINTER_SMOOTHING = 0.34;
@@ -113,9 +131,11 @@ const EXIT_HOLD_MS = 220;
 const LABEL_PUBLISH_MS = 120;
 const MAX_GRIPPER_WIDTH = 0.88;
 const IDEAL_GRIPPER_WIDTH = 0.54;
-const MIN_CAMERA_ZOOM = 0.62;
-const MAX_CAMERA_ZOOM = 1.72;
 const EXIT_BUTTON_ID = "exit-button";
+const SPEED_CONTROL_ID = "speed-control";
+const SPEED_MIN = 0.5;
+const SPEED_MAX = 2;
+const POSE_ATTEMPT_INTERVAL_MS = 720;
 const FINGERTIP_COLORS = ["#f7c66a", "#8af4dd", "#f4f7fb", "#f39bd8", "#78b9ff"];
 
 const SCENE_OBJECTS: SceneObjectSpec[] = [
@@ -209,6 +229,66 @@ const SCENE_OBJECTS: SceneObjectSpec[] = [
     graspWidth: 0.28,
     priorityViews: ["top-sweep", "front-left"],
   },
+  {
+    id: "tissue-box",
+    name: "티슈 박스",
+    semanticClass: "box",
+    description:
+      "상단 우측에 걸쳐 있는 낮은 직육면체 박스다. 뒤쪽 컵과 병을 가리는 추가 occluder 역할을 한다.",
+    graspNote: "상단에서 모서리 grasp를 먼저 추정한 뒤 측면으로 접근하는 편이 좋다.",
+    shape: "box",
+    color: "#ffd2d2",
+    size: [0.82, 0.32, 0.44],
+    position: [0.94, 0.58, 0.62],
+    initialUncertainty: 0.89,
+    graspWidth: 0.62,
+    priorityViews: ["front-right", "right-high"],
+  },
+  {
+    id: "thermos",
+    name: "텀블러",
+    semanticClass: "bottle",
+    description:
+      "중앙 좌측 뒤편에 세워진 원통형 텀블러다. 앞의 자동차와 박스에 가려져 측면 silhouette 확보가 늦다.",
+    graspNote: "원통 body 중심을 따라 좁은 2-finger grasp를 잡는 것이 안정적이다.",
+    shape: "cylinder",
+    color: "#8ad0ff",
+    size: [0.22, 0.88, 0.22],
+    position: [-0.74, 0.8, -0.18],
+    initialUncertainty: 0.91,
+    graspWidth: 0.3,
+    priorityViews: ["left-high", "rear-arc"],
+  },
+  {
+    id: "soap-box",
+    name: "비누 박스",
+    semanticClass: "package",
+    description:
+      "중앙 전방에 눕혀 둔 소형 패키지다. 작은 크기 때문에 confidence는 빨리 오르지만 pose estimation이 흔들리기 쉽다.",
+    graspNote: "정면보다는 상단 sweep에서 모서리 축을 먼저 고정하는 편이 좋다.",
+    shape: "box",
+    color: "#d2c1ff",
+    size: [0.48, 0.2, 0.3],
+    position: [0.38, 0.52, -0.52],
+    initialUncertainty: 0.93,
+    graspWidth: 0.36,
+    priorityViews: ["top-sweep", "front-right"],
+  },
+  {
+    id: "jar",
+    name: "유리 병",
+    semanticClass: "jar",
+    description:
+      "뒤쪽 중앙에 놓인 낮은 병이다. 앞쪽 박스와 컵 뒤에 숨어 있어 top sweep 이후에야 contour가 분리된다.",
+    graspNote: "짧은 원통이라 위에서 윤곽을 따고, 이후 옆면 중심으로 접근하는 계획이 필요하다.",
+    shape: "cylinder",
+    color: "#c7ffe0",
+    size: [0.26, 0.46, 0.26],
+    position: [0.04, 0.56, 0.86],
+    initialUncertainty: 0.95,
+    graspWidth: 0.24,
+    priorityViews: ["top-sweep", "rear-arc"],
+  },
 ];
 
 const CANDIDATE_VIEWS: CandidateViewSpec[] = [
@@ -230,13 +310,6 @@ function lerp(start: number, end: number, alpha: number) {
 
 function handAnchor(points: Landmark[]) {
   return points[9];
-}
-
-function pinchAnchor(points: Landmark[]) {
-  return {
-    x: (points[4].x + points[8].x) * 0.5,
-    y: (points[4].y + points[8].y) * 0.5,
-  };
 }
 
 function buildCameraPose(candidate: CandidateViewSpec, pan: ViewPan, orbit: ViewOrbit) {
@@ -567,6 +640,8 @@ function createRuntimeObject(scene: THREE.Scene, spec: SceneObjectSpec) {
     graspScore: 0.18,
     graspReady: false,
     grasped: false,
+    poseAttempts: 0,
+    poseSolved: false,
     bestViewId: spec.priorityViews[0] ?? CANDIDATE_VIEWS[0].id,
     dropSlot: null,
   };
@@ -651,7 +726,7 @@ export function NBVRoboticsExperience() {
   const targetViewIdRef = useRef(CANDIDATE_VIEWS[0].id);
   const activeViewIdRef = useRef(CANDIDATE_VIEWS[0].id);
   const bestViewIdRef = useRef(CANDIDATE_VIEWS[0].id);
-  const plannerStageRef = useRef<PlannerStage>("manual");
+  const plannerStageRef = useRef<PlannerStage>("auto-scan");
   const hoveredIdRef = useRef<string | null>(null);
   const grabbedIdRef = useRef<string | null>(null);
   const manualPriorityIdRef = useRef<string | null>(null);
@@ -661,6 +736,13 @@ export function NBVRoboticsExperience() {
   const labelsPublishAtRef = useRef(0);
   const userPanRef = useRef<ViewPan>({ x: 0, y: 0 });
   const viewOrbitRef = useRef<ViewOrbit>({ yaw: 0, pitch: 0, zoom: 1 });
+  const speedTrackRef = useRef<HTMLDivElement | null>(null);
+  const speedRef = useRef(1);
+  const speedDragRef = useRef(false);
+  const poseAttemptRef = useRef<{ targetId: string | null; lastAttemptAt: number }>({
+    targetId: null,
+    lastAttemptAt: 0,
+  });
   const leftDragRef = useRef({
     active: false,
     anchorX: 0,
@@ -683,6 +765,7 @@ export function NBVRoboticsExperience() {
   const grabPlaneRef = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
   const grabOffsetRef = useRef(new THREE.Vector3());
   const autoTaskRef = useRef<AutoGraspTask | null>(null);
+  const disturbanceTaskRef = useRef<DisturbanceTask | null>(null);
   const dropCountRef = useRef(0);
   const robotArmLineRef = useRef<THREE.Line | null>(null);
   const effectorGroupRef = useRef<THREE.Group | null>(null);
@@ -700,10 +783,11 @@ export function NBVRoboticsExperience() {
   const [statusLabel, setStatusLabel] = useState("손을 찾는 중");
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const [hoveredAction, setHoveredAction] = useState<string | null>(null);
+  const [simulationSpeed, setSimulationSpeed] = useState(1);
   const [labels, setLabels] = useState<ObjectLabel[]>([]);
   const [plannerInfo, setPlannerInfo] = useState<PlannerInfo>({
-    stage: "manual",
-    stageLabel: "수동 개입 대기",
+    stage: "auto-scan",
+    stageLabel: "자동 NBV 탐색 중",
     activeView: CANDIDATE_VIEWS[0].label,
     bestView: CANDIDATE_VIEWS[0].label,
     priorityTarget: null,
@@ -711,6 +795,50 @@ export function NBVRoboticsExperience() {
 
   function currentCandidate(id: string) {
     return candidateLookupRef.current.get(id) ?? CANDIDATE_VIEWS[0];
+  }
+
+  function updateSpeedFromPointer(clientX: number) {
+    const track = speedTrackRef.current;
+    if (!track) {
+      return;
+    }
+
+    const bounds = track.getBoundingClientRect();
+    const ratio = clamp01((clientX - bounds.left) / Math.max(bounds.width, 1));
+    const nextSpeed = clamp(SPEED_MIN + ratio * (SPEED_MAX - SPEED_MIN), SPEED_MIN, SPEED_MAX);
+    speedRef.current = nextSpeed;
+    setSimulationSpeed(nextSpeed);
+  }
+
+  function pickNextPoseTarget() {
+    const manualTarget = manualPriorityIdRef.current
+      ? objectEntriesRef.current.find(
+          (entry) =>
+            entry.spec.id === manualPriorityIdRef.current &&
+            !entry.grasped &&
+            !entry.poseSolved &&
+            1 - entry.uncertainty > 0.56 &&
+            entry.planProgress > 0.52,
+        )
+      : null;
+
+    if (manualTarget) {
+      return manualTarget;
+    }
+
+    return objectEntriesRef.current
+      .filter(
+        (entry) =>
+          !entry.grasped &&
+          !entry.poseSolved &&
+          1 - entry.uncertainty > 0.56 &&
+          entry.planProgress > 0.52,
+      )
+      .sort((left, right) => {
+        const leftScore = (1 - left.uncertainty) * 0.54 + left.planProgress * 0.46;
+        const rightScore = (1 - right.uncertainty) * 0.54 + right.planProgress * 0.46;
+        return rightScore - leftScore;
+      })[0];
   }
 
   function pickNextExecutionTarget() {
@@ -733,6 +861,20 @@ export function NBVRoboticsExperience() {
 
         return right.planProgress - left.planProgress;
       })[0];
+  }
+
+  function beginDisturbance(now: number, targetId: string) {
+    const currentEffector = effectorGroupRef.current?.position.clone() ?? currentCameraPositionRef.current.clone();
+    disturbanceTaskRef.current = {
+      targetId,
+      phase: "approach",
+      phaseStartedAt: now,
+      startEffector: currentEffector,
+      approachPosition: new THREE.Vector3(-0.8, 1.2, 1.08),
+      sweepStart: new THREE.Vector3(-1.2, 0.88, 1.02),
+      sweepEnd: new THREE.Vector3(1.42, 0.86, -0.96),
+      resetPosition: currentCameraPositionRef.current.clone(),
+    };
   }
 
   function beginAutoTask(entry: RuntimeObject, now: number) {
@@ -893,6 +1035,30 @@ export function NBVRoboticsExperience() {
     (grid.material as THREE.Material).opacity = 0.18;
     scene.add(grid);
 
+    const basketBase = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.88, 0.98, 0.22, 28),
+      new THREE.MeshStandardMaterial({
+        color: "#161d28",
+        metalness: 0.34,
+        roughness: 0.56,
+      }),
+    );
+    basketBase.position.set(3.22, 0.18, -1.82);
+    basketBase.castShadow = true;
+    basketBase.receiveShadow = true;
+    scene.add(basketBase);
+
+    const basketWall = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.CylinderGeometry(0.88, 0.88, 0.84, 16, 1, true)),
+      new THREE.LineBasicMaterial({
+        color: "#7ed0ff",
+        transparent: true,
+        opacity: 0.42,
+      }),
+    );
+    basketWall.position.set(3.22, 0.62, -1.82);
+    scene.add(basketWall);
+
     objectEntriesRef.current = SCENE_OBJECTS.map((spec) => createRuntimeObject(scene, spec));
 
     CANDIDATE_VIEWS.forEach((view) => {
@@ -983,17 +1149,23 @@ export function NBVRoboticsExperience() {
     let lastFrame = performance.now();
 
     const render = (now: number) => {
-      const delta = Math.min((now - lastFrame) / 1000, 0.05);
+      const delta = Math.min((now - lastFrame) / 1000, 0.05) * speedRef.current;
       lastFrame = now;
 
       const activeCandidate = currentCandidate(activeViewIdRef.current);
       const targetCandidate = currentCandidate(targetViewIdRef.current);
       const targetCameraPose = buildCameraPose(targetCandidate, userPanRef.current, viewOrbitRef.current);
+      const cameraPositionAlpha = clamp(
+        (autoTaskRef.current || grabbedIdRef.current ? 0.05 : 0.038) * speedRef.current,
+        0.025,
+        0.18,
+      );
+      const cameraTargetAlpha = clamp(0.08 * speedRef.current, 0.04, 0.22);
       currentCameraPositionRef.current.lerp(
         targetCameraPose.position,
-        autoTaskRef.current || grabbedIdRef.current ? 0.05 : 0.038,
+        cameraPositionAlpha,
       );
-      currentCameraTargetRef.current.lerp(targetCameraPose.target, 0.08);
+      currentCameraTargetRef.current.lerp(targetCameraPose.target, cameraTargetAlpha);
 
       camera.position.copy(currentCameraPositionRef.current);
       camera.lookAt(currentCameraTargetRef.current);
@@ -1065,10 +1237,6 @@ export function NBVRoboticsExperience() {
       };
       bestViewIdRef.current = nextBest.candidate.id;
 
-      if (plannerStageRef.current !== "auto-grasp" && !autoTaskRef.current && !grabbedIdRef.current) {
-        targetViewIdRef.current = nextBest.candidate.id;
-      }
-
       if (currentCameraPositionRef.current.distanceTo(targetCameraPose.position) < 0.14) {
         activeViewIdRef.current = targetViewIdRef.current;
       }
@@ -1116,8 +1284,15 @@ export function NBVRoboticsExperience() {
         }
 
         const confidence = 1 - entry.uncertainty;
+        if (entry.grasped) {
+          entry.poseSolved = true;
+        }
         entry.graspReady =
-          !entry.grasped && confidence > 0.64 && entry.planProgress > 0.72 && entry.graspScore > 0.64;
+          !entry.grasped &&
+          entry.poseSolved &&
+          confidence > 0.64 &&
+          entry.planProgress > 0.72 &&
+          entry.graspScore > 0.56;
 
         const hovered = hoveredIdRef.current === entry.spec.id;
         const grabbed = grabbedIdRef.current === entry.spec.id || autoTaskRef.current?.id === entry.spec.id;
@@ -1141,16 +1316,144 @@ export function NBVRoboticsExperience() {
               : 0.08 + entry.uncertainty * 0.04;
       });
 
+      const poseTarget = pickNextPoseTarget();
       const allGrasped = objectEntriesRef.current.every((entry) => entry.grasped);
-      const allReady = objectEntriesRef.current.every((entry) => entry.grasped || entry.graspReady);
+      const readyCount = objectEntriesRef.current.filter((entry) => !entry.grasped && entry.graspReady).length;
+      const disturbanceTask = disturbanceTaskRef.current;
       const nextStage: PlannerStage = allGrasped
         ? "complete"
-        : allReady
-          ? "auto-grasp"
-          : "auto-scan";
+        : disturbanceTask
+          ? "pile-disturbance"
+          : autoTaskRef.current || readyCount > 0
+            ? "auto-grasp"
+            : poseTarget
+              ? "pose-estimation"
+              : "auto-scan";
       plannerStageRef.current = nextStage;
 
-      if (nextStage === "auto-grasp" && !grabbedIdRef.current) {
+      if (!disturbanceTask && !autoTaskRef.current && !grabbedIdRef.current) {
+        if (poseTarget && !poseTarget.poseSolved) {
+          targetViewIdRef.current = poseTarget.bestViewId;
+        } else if (nextStage !== "auto-grasp") {
+          targetViewIdRef.current = nextBest.candidate.id;
+        }
+      }
+
+      if (disturbanceTask && effectorGroupRef.current) {
+        const targetEntry = objectEntriesRef.current.find((entry) => entry.spec.id === disturbanceTask.targetId);
+        const scaledElapsed = (now - disturbanceTask.phaseStartedAt) * speedRef.current;
+
+        if (disturbanceTask.phase === "approach") {
+          const t = clamp01(scaledElapsed / 620);
+          effectorGroupRef.current.position.lerpVectors(
+            disturbanceTask.startEffector,
+            disturbanceTask.approachPosition,
+            t,
+          );
+          gripperOpenRef.current = lerp(gripperOpenRef.current, 0.68, 0.16);
+          if (t >= 1) {
+            disturbanceTaskRef.current = {
+              ...disturbanceTask,
+              phase: "sweep",
+              phaseStartedAt: now,
+              startEffector: disturbanceTask.approachPosition.clone(),
+            };
+          }
+        } else if (disturbanceTask.phase === "sweep") {
+          const t = clamp01(scaledElapsed / 940);
+          effectorGroupRef.current.position.lerpVectors(
+            disturbanceTask.sweepStart,
+            disturbanceTask.sweepEnd,
+            t,
+          );
+          gripperOpenRef.current = lerp(gripperOpenRef.current, 0.82, 0.18);
+
+          objectEntriesRef.current.forEach((entry) => {
+            if (entry.grasped) {
+              return;
+            }
+
+            const away = entry.group.position.clone().sub(effectorGroupRef.current!.position);
+            away.y = 0;
+            const distanceToSweep = away.length();
+            if (distanceToSweep < 1.26) {
+              const push = away.lengthSq() > 0.0001 ? away.normalize() : new THREE.Vector3(1, 0, 0);
+              entry.group.position.x = clamp(entry.group.position.x + push.x * delta * 0.9, -2.2, 2.2);
+              entry.group.position.z = clamp(entry.group.position.z + push.z * delta * 0.9, -2.2, 2.2);
+              entry.uncertainty = clamp(entry.uncertainty - 0.03, 0.05, 1);
+              entry.planProgress = clamp(entry.planProgress + 0.04, 0, 1);
+              entry.graspScore = clamp(entry.graspScore + 0.02, 0, 1);
+            }
+          });
+
+          if (t >= 1) {
+            disturbanceTaskRef.current = {
+              ...disturbanceTask,
+              phase: "reset",
+              phaseStartedAt: now,
+              startEffector: disturbanceTask.sweepEnd.clone(),
+            };
+          }
+        } else {
+          const t = clamp01(scaledElapsed / 560);
+          effectorGroupRef.current.position.lerpVectors(
+            disturbanceTask.sweepEnd,
+            disturbanceTask.resetPosition,
+            t,
+          );
+          gripperOpenRef.current = lerp(gripperOpenRef.current, 0.52, 0.14);
+          if (t >= 1) {
+            if (targetEntry) {
+              targetEntry.poseAttempts = 0;
+              targetEntry.poseSolved = false;
+              targetEntry.uncertainty = clamp(targetEntry.uncertainty - 0.06, 0.05, 1);
+              targetEntry.planProgress = clamp(targetEntry.planProgress + 0.08, 0, 1);
+            }
+            poseAttemptRef.current = {
+              targetId: disturbanceTask.targetId,
+              lastAttemptAt: now,
+            };
+            disturbanceTaskRef.current = null;
+          }
+        }
+      } else if (poseTarget && !poseTarget.poseSolved && !autoTaskRef.current && !grabbedIdRef.current) {
+        const poseState = poseAttemptRef.current;
+        if (poseState.targetId !== poseTarget.spec.id) {
+          poseAttemptRef.current = {
+            targetId: poseTarget.spec.id,
+            lastAttemptAt: 0,
+          };
+        }
+
+        const desiredPose = buildCameraPose(
+          currentCandidate(poseTarget.bestViewId),
+          userPanRef.current,
+          viewOrbitRef.current,
+        ).position;
+        const poseQuality =
+          (visibleSamples.get(poseTarget.spec.id) ?? 0) *
+          computeGraspability(poseTarget.spec, activeCandidate) *
+          ((1 - poseTarget.uncertainty) * 0.62 + poseTarget.planProgress * 0.38);
+
+        if (
+          currentCameraPositionRef.current.distanceTo(desiredPose) < 0.24 &&
+          now - poseAttemptRef.current.lastAttemptAt >= POSE_ATTEMPT_INTERVAL_MS / speedRef.current
+        ) {
+          poseAttemptRef.current.lastAttemptAt = now;
+          poseTarget.poseAttempts += 1;
+
+          if (poseQuality > 0.34 || (poseQuality > 0.28 && poseTarget.poseAttempts >= 3)) {
+            poseTarget.poseSolved = true;
+            poseTarget.graspScore = clamp(Math.max(poseTarget.graspScore, 0.76), 0, 1);
+            poseTarget.planProgress = clamp(poseTarget.planProgress + 0.08, 0, 1);
+          } else if (poseTarget.poseAttempts > 5) {
+            beginDisturbance(now, poseTarget.spec.id);
+          } else {
+            poseTarget.uncertainty = clamp(poseTarget.uncertainty - 0.025, 0.05, 1);
+            poseTarget.planProgress = clamp(poseTarget.planProgress + 0.05, 0, 1);
+          }
+        }
+      } else if (nextStage === "auto-grasp" && !grabbedIdRef.current && !disturbanceTaskRef.current) {
         const activeTask = autoTaskRef.current;
         if (!activeTask) {
           const nextTarget = pickNextExecutionTarget();
@@ -1169,7 +1472,7 @@ export function NBVRoboticsExperience() {
         } else {
           const entry = objectEntriesRef.current.find((item) => item.spec.id === activeTask.id);
           if (entry) {
-            const elapsed = now - activeTask.phaseStartedAt;
+            const elapsed = (now - activeTask.phaseStartedAt) * speedRef.current;
             const effector = effectorGroupRef.current;
             if (effector) {
               if (activeTask.phase === "approach") {
@@ -1230,6 +1533,7 @@ export function NBVRoboticsExperience() {
                 if (t >= 1) {
                   entry.group.position.copy(activeTask.dropPosition);
                   entry.grasped = true;
+                  entry.poseSolved = true;
                   entry.dropSlot = dropCountRef.current;
                   entry.uncertainty = 0.05;
                   entry.planProgress = 1;
@@ -1328,17 +1632,17 @@ export function NBVRoboticsExperience() {
           stageLabel:
             nextStage === "complete"
               ? "모든 grasp 완료"
+              : nextStage === "pile-disturbance"
+                ? "pile disturbance 수행 중"
+                : nextStage === "pose-estimation"
+                  ? "pose estimation 반복 중"
               : nextStage === "auto-grasp"
                 ? "자동 grasp 수행 중"
                 : grabbedIdRef.current
                   ? "오른손 pinch grasp 재계획 중"
-                  : pinchZoomRef.current.active
-                    ? "양손 pinch로 거리 조정 중"
-                    : leftDragRef.current.active
-                      ? "왼손 펼침 드래그로 회전 중"
-                      : rightPanRef.current.active
-                        ? "오른손 펼침 드래그로 시점 이동 중"
-                        : "자동 NBV 탐색 중",
+                  : manualPriorityIdRef.current
+                    ? "우선 물체 정밀 스캔 중"
+                    : "자동 NBV 탐색 중",
           activeView: currentCandidate(activeViewIdRef.current).label,
           bestView: nextBest.candidate.label,
           priorityTarget: manualPriorityIdRef.current
@@ -1468,7 +1772,6 @@ export function NBVRoboticsExperience() {
         const rightPinched = pointerHand ? isPinched(pointerHand) : false;
         const leftPinched = actionHand ? isPinched(actionHand) : false;
         const leftClustered = actionHand ? isHandClustered(actionHand) : false;
-        const rightClustered = pointerHand ? isHandClustered(pointerHand) : false;
 
         drawPreview(
           previewCanvasRef.current,
@@ -1489,6 +1792,7 @@ export function NBVRoboticsExperience() {
           leftDragRef.current.active = false;
           rightPanRef.current.active = false;
           pinchZoomRef.current.active = false;
+          speedDragRef.current = false;
           exitArmedAtRef.current = null;
           hoveredIdRef.current = null;
           setHoveredAction(null);
@@ -1522,72 +1826,16 @@ export function NBVRoboticsExperience() {
             ?.closest("[data-action-id]")
             ?.getAttribute("data-action-id") ?? null;
         setHoveredAction(hoveredAction);
+        const speedHover = hoveredAction === SPEED_CONTROL_ID;
+        leftDragRef.current.active = false;
+        rightPanRef.current.active = false;
+        pinchZoomRef.current.active = false;
 
-        const leftOpen = actionHand ? isOpenPalm(actionHand) : false;
-        const rightOpen = isOpenPalm(pointerHand);
-        const bothPinched = Boolean(actionHand && leftPinched && rightPinched);
-        const canZoom = bothPinched && !grabbedIdRef.current;
-        const rotationAnchor = actionHand ? handAnchor(actionHand) : null;
-
-        if (canZoom && actionHand) {
-          const leftAnchor = pinchAnchor(actionHand);
-          const rightAnchor = pinchAnchor(pointerHand);
-          const currentDistance = Math.max(distance(leftAnchor, rightAnchor), 0.02);
-          if (!pinchZoomRef.current.active) {
-            pinchZoomRef.current = {
-              active: true,
-              anchorDistance: currentDistance,
-              startZoom: viewOrbitRef.current.zoom,
-            };
-          } else {
-            const ratio = currentDistance / pinchZoomRef.current.anchorDistance;
-            viewOrbitRef.current.zoom = clamp(
-              pinchZoomRef.current.startZoom / Math.max(ratio, 0.08),
-              MIN_CAMERA_ZOOM,
-              MAX_CAMERA_ZOOM,
-            );
-          }
-        } else {
-          pinchZoomRef.current.active = false;
-        }
-
-        if (rotationAnchor && leftOpen && !leftPinched && !leftClustered && !canZoom) {
-          if (!leftDragRef.current.active) {
-            leftDragRef.current = {
-              active: true,
-              anchorX: rotationAnchor.x,
-              anchorY: rotationAnchor.y,
-              startYaw: viewOrbitRef.current.yaw,
-              startPitch: viewOrbitRef.current.pitch,
-            };
-          } else {
-            const deltaX = rotationAnchor.x - leftDragRef.current.anchorX;
-            const deltaY = rotationAnchor.y - leftDragRef.current.anchorY;
-            viewOrbitRef.current.yaw = leftDragRef.current.startYaw - deltaX * 4.8;
-            viewOrbitRef.current.pitch = clamp(leftDragRef.current.startPitch + deltaY * 3.2, -0.72, 0.72);
-          }
-        } else {
-          leftDragRef.current.active = false;
-        }
-
-        if (rightOpen && !rightPinched && !rightClustered && !canZoom) {
-          const anchor = handAnchor(pointerHand);
-          if (!rightPanRef.current.active) {
-            rightPanRef.current = {
-              active: true,
-              anchorX: anchor.x,
-              anchorY: anchor.y,
-              startX: userPanRef.current.x,
-              startY: userPanRef.current.y,
-            };
-          } else {
-            const deltaX = anchor.x - rightPanRef.current.anchorX;
-            const deltaY = anchor.y - rightPanRef.current.anchorY;
-            userPanRef.current.x = clamp(rightPanRef.current.startX - deltaX * 7.4, -2.8, 2.8);
-            userPanRef.current.y = clamp(rightPanRef.current.startY + deltaY * 4.2, -1.6, 1.6);
-          }
-        } else {
-          rightPanRef.current.active = false;
+        if (rightPinched && (speedHover || speedDragRef.current)) {
+          speedDragRef.current = true;
+          updateSpeedFromPointer(pointerRef.current.x);
+        } else if (!rightPinched) {
+          speedDragRef.current = false;
         }
 
         if (leftPinched && !leftPinchedRef.current && hoveredIdRef.current && !rightPinched) {
@@ -1595,11 +1843,15 @@ export function NBVRoboticsExperience() {
           const entry = objectEntriesRef.current.find((item) => item.spec.id === hoveredIdRef.current);
           if (entry) {
             targetViewIdRef.current = entry.bestViewId;
+            entry.uncertainty = clamp(entry.uncertainty - 0.08, 0.05, 1);
+            entry.planProgress = clamp(entry.planProgress + 0.12, 0, 1);
+            entry.graspScore = clamp(entry.graspScore + 0.08, 0, 1);
+            entry.poseAttempts = 0;
           }
         }
         leftPinchedRef.current = leftPinched;
 
-        if (rightPinched && !rightPinchedRef.current && !canZoom) {
+        if (rightPinched && !rightPinchedRef.current && !speedDragRef.current) {
           const hit = intersectHoveredObject();
           const grabbedId = resolveObjectId(hit?.object ?? null) ?? hoveredIdRef.current;
           if (grabbedId) {
@@ -1609,6 +1861,7 @@ export function NBVRoboticsExperience() {
               grabPlaneRef.current.set(new THREE.Vector3(0, 1, 0), -entry.group.position.y);
               grabOffsetRef.current.copy(entry.group.position).sub(hit?.point ?? entry.group.position);
               autoTaskRef.current = null;
+              disturbanceTaskRef.current = null;
             }
           }
         } else if (!rightPinched && rightPinchedRef.current) {
@@ -1650,15 +1903,13 @@ export function NBVRoboticsExperience() {
             ? "조명이 너무 어두움"
             : grabbedIdRef.current
               ? "오른손 pinch grasp로 물체 이동 중"
-              : pinchZoomRef.current.active
-                ? "양손 pinch 거리로 확대/축소 중"
-                : leftDragRef.current.active
-                  ? "왼손 펼침 드래그로 회전 중"
-                  : rightPanRef.current.active
-                    ? "오른손 펼침 드래그로 시점 이동 중"
-                    : manualPriorityIdRef.current
-                      ? "우선 grasp 대상 지정됨"
-                      : "자동 NBV + grasp planning 유지 중",
+              : speedDragRef.current
+                ? `시뮬레이션 속도 ${speedRef.current.toFixed(2)}x`
+                : manualPriorityIdRef.current
+                  ? "왼손 pinch 정밀 스캔 명령 유지 중"
+                  : disturbanceTaskRef.current
+                    ? "pile disturbance로 pose estimation 재시도 중"
+                    : "자동 NBV + grasp planning 유지 중",
         );
 
         trackingFrameRef.current = requestAnimationFrame(loop);
@@ -1687,6 +1938,28 @@ export function NBVRoboticsExperience() {
       <div className={styles.vignette} />
 
       <header className={styles.topBar}>
+        <div className={styles.speedDock}>
+          <span className={styles.speedLabel}>Speed {simulationSpeed.toFixed(2)}x</span>
+          <div
+            ref={speedTrackRef}
+            className={styles.speedTrack}
+            data-action-id={SPEED_CONTROL_ID}
+          >
+            <div
+              className={styles.speedFill}
+              style={{
+                width: `${((simulationSpeed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN)) * 100}%`,
+              }}
+            />
+            <span
+              className={styles.speedThumb}
+              data-action-id={SPEED_CONTROL_ID}
+              style={{
+                left: `${((simulationSpeed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN)) * 100}%`,
+              }}
+            />
+          </div>
+        </div>
         <div className={styles.badgeRow}>
           <span className={styles.infoPill}>{plannerInfo.stageLabel}</span>
           <span className={styles.infoPill}>
