@@ -10,7 +10,7 @@
   - 우측 상단의 회전하는 와이어프레임 정육면체 버튼으로 메뉴 진입 가능
 - 브레인 메뉴 화면
   - 프로젝트 구체들이 브레인 장면 위에 배치됨
-  - 현재는 `Solar Orrery`, `NBV Robotics Lab` 두 작업물만 유지
+  - 현재는 `Solar Orrery`, `NBV Robotics Lab`, `WallCL`, `LCL` 네 작업물을 유지
 - 작업물 상세 화면
   - 각 작업물별 인터랙션 컴포넌트로 분기
 
@@ -28,13 +28,18 @@
 - 허브 공통
   - 오른손 검지: 포인터 이동
   - 메뉴 구체 hover + 왼손 활성 제스처: 프로젝트 진입
-  - 양손 주먹: 허브 복귀가 필요한 작업물에서 메뉴로 돌아가기
+  - 우하단 `Exit` 버튼 hover + 왼손 주먹 유지: 허브 복귀
 - Solar Orrery
   - 행성 선택, 블랙홀 오버레이, 복귀 제스처 지원
 - NBV Robotics Lab
   - 오른손 `pinch`: 물체 grasp 및 이동
-  - 왼손 `fist + drag`: 시야 이동
   - 왼손 `pinch`: 자동 플래너 우선 대상 지정
+  - 오른손 `pinch`: 우상단 속도 바 조절에도 사용
+- WallCL
+  - 자동 클라이밍 사이클 재생
+  - 예상 하드웨어 프레임과 제어 구성 표시
+- LCL
+  - contrastive learning 진행도, embedding 정렬, glare-robust detection 시각화
 
 ## 개발 메모
 
@@ -44,6 +49,10 @@
   - 허브에 노출할 프로젝트 메타데이터
 - `app/works/[slug]/page.tsx`
   - 작업물별 라우팅 분기
+- `app/components/WallClExperience.tsx`
+  - wall climbing gait와 예상 하드웨어 설계 화면
+- `app/components/LclExperience.tsx`
+  - contrastive learning 및 glare-robust detection 시각화 화면
 
 ## 목표
 

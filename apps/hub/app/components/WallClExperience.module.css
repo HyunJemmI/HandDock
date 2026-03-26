@@ -1,0 +1,244 @@
+.shell {
+  min-height: 100vh;
+  padding: 28px;
+  background:
+    radial-gradient(circle at 16% 14%, rgba(255, 255, 255, 0.08), transparent 18%),
+    radial-gradient(circle at 82% 28%, rgba(240, 199, 140, 0.08), transparent 24%),
+    linear-gradient(180deg, #020202 0%, #090909 100%);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.95fr);
+  gap: 20px;
+  min-height: calc(100vh - 56px);
+}
+
+.stageCard,
+.hardwareCard {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 32px;
+  background: rgba(8, 8, 8, 0.84);
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(18px);
+}
+
+.stageCard {
+  padding: 24px;
+}
+
+.hardwareCard {
+  padding: 24px 22px 26px;
+}
+
+.headerRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: rgba(240, 199, 140, 0.78);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.title,
+.subtitle {
+  margin: 0;
+  letter-spacing: -0.04em;
+}
+
+.title {
+  max-width: 16ch;
+  font-size: clamp(2rem, 3vw, 3.1rem);
+  line-height: 0.98;
+}
+
+.subtitle {
+  font-size: 1.38rem;
+}
+
+.metricStrip {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.metricCard,
+.footerCard,
+.featureCard {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.metricCard {
+  min-width: 110px;
+  padding: 12px 14px;
+  text-align: right;
+}
+
+.metricCard strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 1.08rem;
+}
+
+.metricLabel,
+.footerLabel,
+.stackLabel {
+  color: rgba(255, 255, 255, 0.46);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.stageCanvas {
+  overflow: hidden;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.04), transparent 44%),
+    rgba(255, 255, 255, 0.02);
+}
+
+.svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.svgLabel,
+.svgCopy,
+.calloutLabel {
+  fill: rgba(255, 255, 255, 0.84);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.svgLabel {
+  font-size: 14px;
+  letter-spacing: 0.24em;
+}
+
+.svgCopy {
+  font-size: 13px;
+  fill: rgba(255, 255, 255, 0.56);
+}
+
+.calloutLabel {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.footerGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.footerCard {
+  padding: 16px 16px 15px;
+}
+
+.footerCard strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 1rem;
+}
+
+.footerCard p,
+.featureCard p {
+  margin: 8px 0 0;
+  color: rgba(255, 255, 255, 0.66);
+  line-height: 1.65;
+}
+
+.hardwareHeader {
+  margin-bottom: 16px;
+}
+
+.hardwareSvg {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin-bottom: 16px;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(255, 255, 255, 0.04), transparent 34%),
+    rgba(255, 255, 255, 0.03);
+}
+
+.listBlock {
+  display: grid;
+  gap: 12px;
+}
+
+.featureCard {
+  padding: 16px;
+}
+
+.featureCard h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.stackBlock {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.stackPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.stackPill {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.78rem;
+}
+
+@media (max-width: 1100px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .title {
+    max-width: none;
+  }
+}
+
+@media (max-width: 820px) {
+  .shell {
+    padding: 16px;
+  }
+
+  .headerRow {
+    flex-direction: column;
+  }
+
+  .metricStrip {
+    justify-content: flex-start;
+  }
+
+  .footerGrid {
+    grid-template-columns: 1fr;
+  }
+}

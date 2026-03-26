@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import { BlackHoleScene } from "../../components/BlackHoleScene";
+import { LclExperience } from "../../components/LclExperience";
 import { NBVRoboticsExperience } from "../../components/NBVRoboticsExperience";
 import { SolarSystemExperience } from "../../components/SolarSystemExperience";
+import { WallClExperience } from "../../components/WallClExperience";
 import { WorkGestureBack } from "../../components/WorkGestureBack";
 import styles from "../../page.module.css";
 import { works } from "../../work-data";
@@ -28,6 +30,14 @@ export default async function WorkPage({
 
   if (slug === "nbv-robotics-lab") {
     return <NBVRoboticsExperience />;
+  }
+
+  if (slug === "wall-cl") {
+    return <WallClExperience />;
+  }
+
+  if (slug === "lcl-contrast-lab") {
+    return <LclExperience />;
   }
 
   return (

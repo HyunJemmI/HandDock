@@ -1,0 +1,230 @@
+.shell {
+  min-height: 100vh;
+  padding: 28px;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(122, 163, 255, 0.12), transparent 22%),
+    radial-gradient(circle at 84% 20%, rgba(255, 208, 160, 0.12), transparent 24%),
+    linear-gradient(180deg, #020202 0%, #090909 100%);
+}
+
+.layout {
+  display: grid;
+  gap: 20px;
+}
+
+.hero,
+.inferenceCard,
+.card,
+.kpiCard,
+.bottomCard {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(8, 8, 8, 0.84);
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(18px);
+}
+
+.hero,
+.inferenceCard {
+  border-radius: 32px;
+  padding: 24px;
+}
+
+.heroHeader,
+.cardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.eyebrow,
+.cardEyebrow {
+  margin: 0 0 8px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.eyebrow {
+  color: rgba(122, 163, 255, 0.8);
+}
+
+.cardEyebrow {
+  color: rgba(255, 255, 255, 0.54);
+}
+
+.title {
+  max-width: 15ch;
+  margin: 0;
+  font-size: clamp(2rem, 3vw, 3rem);
+  letter-spacing: -0.05em;
+  line-height: 0.98;
+}
+
+.kpiRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.kpiCard,
+.bottomCard {
+  border-radius: 22px;
+}
+
+.kpiCard {
+  min-width: 140px;
+  padding: 12px 14px;
+}
+
+.kpiCard span,
+.statLabel {
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.kpiCard strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 1.08rem;
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.card {
+  border-radius: 28px;
+  padding: 18px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.8rem;
+}
+
+.pairGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.frameCard {
+  padding: 14px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.frameLabel {
+  display: inline-block;
+  margin-bottom: 10px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.8rem;
+}
+
+.sceneSvg,
+.embeddingSvg,
+.inferenceSvg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.cardCopy,
+.bottomCard p {
+  margin: 14px 0 0;
+  color: rgba(255, 255, 255, 0.68);
+  line-height: 1.7;
+}
+
+.embeddingPanel {
+  display: grid;
+  grid-template-columns: minmax(0, 240px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  margin-top: 18px;
+}
+
+.embeddingStats {
+  display: grid;
+  gap: 12px;
+}
+
+.statBlock {
+  padding: 14px 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.statBlock strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 1.06rem;
+}
+
+.overlayLabel {
+  fill: rgba(255, 255, 255, 0.82);
+  font-size: 14px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.04em;
+}
+
+.bottomGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.bottomCard {
+  padding: 16px;
+}
+
+.bottomCard h3 {
+  margin: 8px 0 0;
+  font-size: 1rem;
+}
+
+@media (max-width: 1040px) {
+  .cardGrid,
+  .bottomGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .embeddingPanel {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 820px) {
+  .shell {
+    padding: 16px;
+  }
+
+  .heroHeader,
+  .cardHeader {
+    flex-direction: column;
+  }
+
+  .kpiRow {
+    justify-content: flex-start;
+  }
+
+  .pairGrid {
+    grid-template-columns: 1fr;
+  }
+}
